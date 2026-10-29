@@ -1,0 +1,13 @@
+{
+  "appId": "com.wakeuppc.app",
+  "appName": "WakeUp-Pc",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "SystemBars": {
+      "insetsHandling": "css"
+    }
+  }
+}
