@@ -3,11 +3,15 @@
   "appName": "WakeUp-Pc",
   "webDir": "dist",
   "server": {
-    "androidScheme": "https"
+    "androidScheme": "https",
+    "cleartext": true
   },
   "plugins": {
     "SystemBars": {
       "insetsHandling": "css"
     }
+  },
+  "android": {
+    "allowMixedContent": true
   }
 }

@@ -123,6 +123,39 @@ Dans Réglages, ligne Code PIN, tu peux créer un code à 6 chiffres. Ensuite l'
 
 Dans Réglages, tu peux activer le Mode démo. L'appli utilise alors un faux ordinateur : tout marche (éteindre, rallumer, minuterie, historique…) mais rien n'est envoyé sur le réseau. Tes vrais réglages ne sont pas modifiés, tu les retrouves en désactivant la démo. C'est aussi ce que les testeurs du Play Store utiliseront.
 
+## Travailler sans internet : la connexion directe
+
+Quand le téléphone et le PC sont sur le même petit réseau, ils peuvent se parler sans internet et sans Tailscale :
+
+- le point d'accès Wi-Fi du téléphone, avec le PC connecté dessus ;
+- le même Wi-Fi (même box ou routeur, même sans internet) ;
+- le partage de connexion Bluetooth du téléphone (lent, mais ça passe) ;
+- le partage de connexion USB (le plus rapide).
+
+Marche à suivre :
+
+1. Sur le PC, ajoute `set LAN=1` avant `python agent.py`. L'agent affiche des lignes « Connexion directe : http://192.168.x.x:8766 ».
+2. Accepte la demande du pare-feu Windows pour les réseaux privés. Si le PC est sur le point d'accès du téléphone et que Windows le classe en réseau public, passe-le en privé.
+3. Dans l'appli, Réglages, ligne **Direct** : tape l'adresse (par exemple `192.168.43.2`).
+4. La ligne du haut affiche « Ordinateur en ligne · direct ».
+
+Ça ne marche que dans l'appli Android (l'APK ou le Play Store), pas dans la page web. Et un PC éteint ne rejoint aucun réseau : pour l'allumer, il faut le relais, dont tu peux aussi mettre l'adresse locale dans sa ligne **Direct**.
+
+Sur ce chemin, le token ne circule jamais (chaque requête est signée), mais le contenu des fichiers n'est pas chiffré : utilise-le sur ton propre réseau protégé par mot de passe, pas sur un Wi-Fi public.
+
+## Transférer des fichiers
+
+L'écran **Fichiers** donne accès au dossier de partage du PC (par défaut `WakeUp-Pc` dans ton dossier utilisateur, modifiable avec `set SHARE_DIR=D:\\Partage`). Rien d'autre sur le PC n'est visible.
+
+- **PC vers téléphone** : mets le fichier dans le dossier de partage, ouvre Fichiers et appuie dessus. Le navigateur du téléphone le télécharge dans Téléchargements.
+- **Téléphone vers PC** : Fichiers, **Envoyer vers le PC**, choisis un ou plusieurs fichiers. Un fichier du même nom n'est jamais écrasé (le nouveau devient `nom (1)`).
+- La taille maximale est de 1 Go par fichier (`set MAX_UPLOAD_MB=4096` pour changer).
+- Ça marche par Tailscale et en connexion directe, donc avec ou sans internet.
+
+## Obtenir l'APK
+
+Voir la section « Obtenir l'APK » du README : onglet Actions, workflow **Construire l'APK**, puis le fichier `WakeUp-Pc.apk` dans les Releases du dépôt.
+
 ## Les messages en bas de l'écran
 
 - Éteindre : envoyé, ou un message du même genre : l'ordre est bien parti.

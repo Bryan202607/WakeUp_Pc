@@ -45,6 +45,7 @@ L'interface est faite en React (avec Vite), c'est la page qu'on ouvre sur le té
    │   ├── icons.jsx
    │   ├── main.jsx
    │   ├── Settings.jsx
+   │   ├── Files.jsx
    │   ├── Guide.jsx
    │   ├── guideData.js
    │   ├── Pin.jsx
@@ -123,9 +124,25 @@ Il faut aussi préparer le PC pour qu'il accepte d'être réveillé :
 3. Appuie sur le bouton de réglages en haut à droite et remplis les adresses et les tokens du PC et du relais. Si tu ne sais pas où les trouver, regarde la partie Où trouver le token et l'adresse dans le `GUIDE.md`.
 4. Enregistre. Si tout va bien, la ligne du haut affiche Ordinateur en ligne.
 
-## Nouveautés de la version 1.1
+## Nouveautés de la version 1.2
 
-Extinction programmée, hibernation, déconnexion, écran éteint, volume et médias, infos du PC avec historique, ouvrir un site ou une appli, presse-papiers, code PIN pour toute l'appli et mode démo. Tout est expliqué dans GUIDE.md, et le même guide est aussi lisible directement dans l'appli (bouton livre en haut à droite), même sans connexion. L'appli contient aussi le code de `agent.py` : bouton Partager ou Copier dans le chapitre « Installer l'agent sur le PC ». Pour "ouvrir une appli", crée un fichier `apps.json` à côté de `agent.py` (exemple dans `apps.example.json`).
+- **Connexion directe, sans internet** : le téléphone parle au PC par le point d'accès Wi-Fi du téléphone, le même Wi-Fi, le partage de connexion Bluetooth ou USB. On lance l'agent avec `LAN=1` et on met son adresse locale dans la ligne « Direct » des réglages. Les requêtes sont signées, le token ne circule jamais.
+- **Fichiers dans les deux sens** : écran « Fichiers » pour envoyer un fichier du téléphone vers le PC, ou télécharger un fichier du PC. Seul le dossier de partage (`~/WakeUp-Pc`, ou `SHARE_DIR`) est accessible.
+- **APK construit par GitHub** : voir « Obtenir l'APK » plus bas.
+- Le guide complet est lisible dans l'appli (bouton livre), même sans connexion, et contient le code de `agent.py`.
+
+Les nouveautés de la 1.1 (extinction programmée, hibernation, déconnexion, volume et médias, infos du PC, ouvrir un site ou une appli, presse-papiers, code PIN, mode démo) sont expliquées dans GUIDE.md. Pour « ouvrir une appli », crée un fichier `apps.json` à côté de `agent.py` (exemple dans `apps.example.json`).
+
+## Obtenir l'APK
+
+L'APK est le fichier d'installation de l'appli Android. GitHub le fabrique pour toi :
+
+1. Sur GitHub, ouvre le dépôt, onglet **Actions**, puis **Construire l'APK**, puis **Run workflow**.
+2. Attends 6 à 10 minutes que la ligne devienne verte.
+3. Ouvre l'onglet **Releases** (ou la page d'accueil du dépôt, à droite) : la version **WakeUp-Pc (APK)** contient le fichier `WakeUp-Pc.apk`. Le lien direct est aussi écrit dans le résumé de l'exécution.
+4. Télécharge-le sur ton téléphone et ouvre-le. Android demande d'autoriser l'installation d'applis depuis cette source (Chrome ou Fichiers) : accepte. Si Play Protect avertit que l'appli est inconnue, choisis « Installer quand même » : c'est ton propre fichier.
+
+Chaque lancement remplace l'APK précédent et augmente le numéro de version, donc tu peux installer par-dessus sans rien perdre. Pour un APK signé avec ta propre clé (la même que pour le Play Store), lance une fois « Créer la clé de signature » (voir PLAYSTORE.md). Sans clé, l'APK est quand même signé, avec une clé de test.
 
 ## Utilisation
 
