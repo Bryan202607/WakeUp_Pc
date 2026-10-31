@@ -45,6 +45,12 @@ L'interface est faite en React (avec Vite), c'est la page qu'on ouvre sur le té
    │   ├── icons.jsx
    │   ├── main.jsx
    │   ├── Settings.jsx
+   │   ├── Guide.jsx
+   │   ├── guideData.js
+   │   ├── Pin.jsx
+   │   ├── pin.js
+   │   ├── Row.jsx
+   │   ├── Tools.jsx
    │   ├── Sheet.jsx
    │   ├── styles.css
    │   └── useStatus.js
@@ -116,6 +122,10 @@ Il faut aussi préparer le PC pour qu'il accepte d'être réveillé :
 2. Ouvre la page `https://TON-PSEUDO.github.io/WakeUp-Pc/`.
 3. Appuie sur le bouton de réglages en haut à droite et remplis les adresses et les tokens du PC et du relais. Si tu ne sais pas où les trouver, regarde la partie Où trouver le token et l'adresse dans le `GUIDE.md`.
 4. Enregistre. Si tout va bien, la ligne du haut affiche Ordinateur en ligne.
+
+## Nouveautés de la version 1.1
+
+Extinction programmée, hibernation, déconnexion, écran éteint, volume et médias, infos du PC avec historique, ouvrir un site ou une appli, presse-papiers, code PIN pour toute l'appli et mode démo. Tout est expliqué dans GUIDE.md, et le même guide est aussi lisible directement dans l'appli (bouton livre en haut à droite), même sans connexion. L'appli contient aussi le code de `agent.py` : bouton Partager ou Copier dans le chapitre « Installer l'agent sur le PC ». Pour "ouvrir une appli", crée un fichier `apps.json` à côté de `agent.py` (exemple dans `apps.example.json`).
 
 ## Utilisation
 

@@ -5,3 +5,5 @@ assets
 playstore
 *.jks
 *.aab
+apps.json
+start-wakeup.bat

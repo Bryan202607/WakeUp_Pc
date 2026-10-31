@@ -116,7 +116,7 @@ Aucune publicité. Aucune collecte de données.
 
 ### L'accès à l'appli (point délicat)
 
-Google demande comment ses testeurs peuvent utiliser ton appli. Comme elle ne marche qu'avec ton propre PC, un testeur de Google ne pourra pas la tester. Explique-le clairement dans la section Accès à l'appli (l'appli nécessite l'ordinateur de l'utilisateur, un relais et Tailscale) et ajoute un lien vers le guide. Si Google refuse malgré tout, une solution est d'ajouter un mode démo dans l'appli, avec un faux ordinateur, pour que les testeurs puissent voir les écrans. Je peux le faire si tu veux.
+Google demande comment ses testeurs peuvent utiliser ton appli. Comme elle ne marche normalement qu'avec ton propre PC, utilise le mode démo : sur l'écran d'accueil il y a un bouton Essayer en mode démo, et dans Réglages un interrupteur Mode démo. Il ne demande aucun compte, aucun token et aucun PC. Dans la section Accès à l'appli, écris : « Aucune connexion nécessaire. Sur l'écran d'accueil, appuyer sur Essayer en mode démo pour tester toutes les fonctions avec un faux ordinateur. » Si tu actives un code PIN pour tes propres tests, ne le laisse pas actif sur le compte testeur, ou donne le code dans les instructions.
 
 ## Étape 7 : test fermé, puis production
 

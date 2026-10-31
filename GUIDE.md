@@ -74,7 +74,9 @@ Le bouton est grisé si le relais est hors ligne. Dans ce cas, vérifie que le r
 
 ## Contrôler le PC allumé
 
-Quand le PC est en ligne, tu as 4 lignes :
+Quand le PC est en ligne, l'écran montre deux groupes de lignes.
+
+**Le premier groupe, les 4 actions de base :**
 
 - Verrouiller : verrouille la session Windows, utile si tu l'as laissée ouverte.
 - Mettre en veille : le PC se met en veille tout de suite.
@@ -83,7 +85,43 @@ Quand le PC est en ligne, tu as 4 lignes :
 
 Pour Redémarrer et Éteindre, il faut appuyer deux fois. Au premier appui, la ligne devient rouge avec le message Appuie pour confirmer. Tu as 4 secondes pour appuyer une deuxième fois, sinon ça s'annule. C'est fait exprès pour éviter les mauvaises manips.
 
+**Le deuxième groupe, les outils (chaque ligne ouvre une petite feuille) :**
+
+- Éteindre dans… : choisis 15 min, 30 min, 1 h, 2 h ou 4 h, et le PC s'éteint tout seul à l'heure prévue. Tu peux annuler à tout moment depuis la même feuille.
+- Autres actions : Hiberner, Se déconnecter (deux appuis, tu perds ce qui n'est pas enregistré) et Éteindre l'écran (il se rallume dès que tu bouges la souris).
+- Médias et volume : précédent, lecture/pause, suivant, volume moins, muet, volume plus.
+- Envoyer au PC : ouvrir une appli de ta liste, ouvrir un site, ou envoyer un texte dans le presse-papiers du PC (ensuite tu fais Ctrl+V sur le PC).
+- Infos et historique : depuis combien de temps le PC est allumé, mémoire, disque, batterie s'il y en a une, et les 20 dernières actions avec l'heure. Les tentatives de token refusées y apparaissent en rouge.
+
 Attention, si tu éteins le PC, tu ne pourras plus le contrôler avant de l'avoir rallumé avec le bouton Allumer. Et si tu mets en veille, il peut ne pas se réveiller avec ce bouton selon la carte mère, donc teste avant de t'en servir à distance.
+
+## Choisir les applis qu'on peut ouvrir à distance
+
+Pour des raisons de sécurité, le téléphone ne peut ouvrir que les applis que toi tu as autorisées sur le PC. Crée un fichier `apps.json` dans le même dossier que `agent.py`, avec ce genre de contenu :
+
+```
+{
+  "YouTube": "https://youtube.com",
+  "Bloc-notes": "notepad.exe",
+  "Calculatrice": "calc.exe",
+  "Mon dossier": "C:\\Users\\Bryan\\Documents"
+}
+```
+
+À gauche le nom qui s'affichera dans l'appli, à droite ce qui doit s'ouvrir (un site, un programme, un dossier). Sur Windows, les `\` d'un chemin s'écrivent `\\` dans ce fichier. Pas besoin de relancer l'agent quand tu modifies la liste. Ne mets pas ce fichier sur GitHub (il est déjà ignoré).
+
+## Le code PIN
+
+Dans Réglages, ligne Code PIN, tu peux créer un code à 6 chiffres. Ensuite l'appli le demande à chaque ouverture, et se reverrouille quand tu la quittes plus de 30 secondes.
+
+- Après 5 erreurs, il faut attendre 1 minute. Ça monte à 5 puis 15 minutes si tu continues.
+- Le code reste sur ton téléphone sous forme d'empreinte, il n'est écrit nulle part en clair.
+- Si tu l'oublies, appuie sur Code oublié ? sur l'écran de verrouillage. Ça efface tout sur le téléphone (adresses, tokens, code), tu devras ressaisir les réglages. Le PC n'est pas touché.
+- Le code protège contre quelqu'un qui prend ton téléphone, pas contre quelqu'un qui connaît ton token. Garde le token secret aussi.
+
+## Le mode démo
+
+Dans Réglages, tu peux activer le Mode démo. L'appli utilise alors un faux ordinateur : tout marche (éteindre, rallumer, minuterie, historique…) mais rien n'est envoyé sur le réseau. Tes vrais réglages ne sont pas modifiés, tu les retrouves en désactivant la démo. C'est aussi ce que les testeurs du Play Store utiliseront.
 
 ## Les messages en bas de l'écran
 
