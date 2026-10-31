@@ -38,11 +38,18 @@ jobs:
           npx capacitor-assets generate --android
           npx cap sync android
 
+      - name: Autoriser la connexion directe (http sur le réseau local)
+        run: |
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          if ! grep -q usesCleartextTraffic "$MANIFEST"; then
+            sed -i 's/<application/<application android:usesCleartextTraffic="true"/' "$MANIFEST"
+          fi
+
       - name: Numéro de version
         run: |
           VC=${{ github.run_number }}
           sed -i -E "s/versionCode[[:space:]]*=?[[:space:]]*[0-9]+/versionCode = $VC/" android/app/build.gradle
-          sed -i -E "s/versionName[[:space:]]*=?[[:space:]]*\"[^\"]*\"/versionName = \"1.0.$VC\"/" android/app/build.gradle
+          sed -i -E "s/versionName[[:space:]]*=?[[:space:]]*\"[^\"]*\"/versionName = \"1.2.$VC\"/" android/app/build.gradle
           grep -n "versionCode\|versionName" android/app/build.gradle
 
       - name: Compiler le bundle Android

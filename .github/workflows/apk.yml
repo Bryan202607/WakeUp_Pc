@@ -1,0 +1,108 @@
+name: Construire l'APK
+
+# À lancer à la main : onglet Actions > "Construire l'APK" > Run workflow.
+# Quand c'est fini (6 à 10 minutes), l'APK est dans l'onglet Releases du dépôt (version "apk-latest").
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Dessiner les icônes
+        run: |
+          pip install pillow
+          python tools/make_assets.py
+
+      - name: Compiler l'interface
+        run: |
+          npm install
+          npm run build
+
+      - name: Créer le projet Android
+        run: |
+          npx cap add android
+          npx capacitor-assets generate --android
+          npx cap sync android
+
+      - name: Autoriser la connexion directe (http sur le réseau local)
+        run: |
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          if ! grep -q usesCleartextTraffic "$MANIFEST"; then
+            sed -i 's/<application/<application android:usesCleartextTraffic="true"/' "$MANIFEST"
+          fi
+          grep -n "usesCleartextTraffic" "$MANIFEST"
+
+      - name: Numéro de version
+        run: |
+          VC=${{ github.run_number }}
+          sed -i -E "s/versionCode[[:space:]]*=?[[:space:]]*[0-9]+/versionCode = $VC/" android/app/build.gradle
+          sed -i -E "s/versionName[[:space:]]*=?[[:space:]]*\"[^\"]*\"/versionName = \"1.2.$VC\"/" android/app/build.gradle
+          grep -n "versionCode\|versionName" android/app/build.gradle
+
+      - name: Compiler l'APK
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          cd android
+          chmod +x gradlew
+          if [ -n "$KS_B64" ]; then
+            echo "Clé de signature trouvée : APK signé avec ta clé."
+            ./gradlew assembleRelease --no-daemon
+            BT=$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)
+            echo "$KS_B64" | base64 -d > ../upload.jks
+            "$ANDROID_HOME/build-tools/$BT/zipalign" -p -f 4 \
+              app/build/outputs/apk/release/app-release-unsigned.apk ../aligned.apk
+            "$ANDROID_HOME/build-tools/$BT/apksigner" sign \
+              --ks ../upload.jks --ks-key-alias upload \
+              --ks-pass "pass:$KS_PASS" --key-pass "pass:$KS_PASS" \
+              --out ../WakeUp-Pc.apk ../aligned.apk
+            "$ANDROID_HOME/build-tools/$BT/apksigner" verify ../WakeUp-Pc.apk
+            rm -f ../upload.jks ../aligned.apk
+          else
+            echo "Pas de clé de signature : APK de test (signé avec la clé de debug), installable quand même."
+            ./gradlew assembleDebug --no-daemon
+            cp app/build/outputs/apk/debug/app-debug.apk ../WakeUp-Pc.apk
+          fi
+          ls -l ../WakeUp-Pc.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WakeUp-Pc-apk
+          path: WakeUp-Pc.apk
+          retention-days: 30
+
+      - name: Publier l'APK dans les Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete apk-latest --cleanup-tag --yes || true
+          gh release create apk-latest WakeUp-Pc.apk \
+            --target "${{ github.sha }}" \
+            --title "WakeUp-Pc (APK)" \
+            --notes "Version 1.2.${{ github.run_number }}. Télécharge WakeUp-Pc.apk et installe-le sur ton téléphone Android." \
+            --latest
+          LINK="https://github.com/${{ github.repository }}/releases/download/apk-latest/WakeUp-Pc.apk"
+          echo "## APK prêt" >> "$GITHUB_STEP_SUMMARY"
+          echo "Lien de téléchargement direct : $LINK" >> "$GITHUB_STEP_SUMMARY"
+          echo "Lien de téléchargement direct : $LINK"
