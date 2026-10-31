@@ -1,7 +1,7 @@
 // Contenu du guide d'utilisation, lu directement dans l'appli (aucune connexion nécessaire).
 // Types de blocs : h (sous-titre), p (texte), list (puces), steps (étapes numérotées),
 // code (commande à copier), warn (à retenir), agent (boutons pour récupérer agent.py).
-// **gras** et `code` marchent dans le texte. {ORIGIN} devient l'adresse de cette appli.
+// **gras** et `code` marchent dans le texte. {ORIGIN} devient l'adresse de cette appli, {ORIGINS} la liste à donner à l'agent.
 
 export const CHAPTERS = [
   {
@@ -22,6 +22,15 @@ export const CHAPTERS = [
         ],
       },
       { t: "warn", text: "Sans relais, tu peux tout faire sauf allumer le PC. Tu peux donc commencer sans, et l'ajouter plus tard." },
+      { t: "h", text: "Avec ou sans internet" },
+      {
+        t: "list",
+        items: [
+          "**Tailscale** : le téléphone et le PC se parlent via internet, de n'importe où.",
+          "**Connexion directe** : sans internet, quand le téléphone et le PC sont sur le même petit réseau (point d'accès du téléphone, même Wi-Fi, partage de connexion Bluetooth ou USB). Voir le chapitre « Sans internet ».",
+        ],
+      },
+      { t: "p", text: "L'appli vérifie les deux chemins en permanence et prend toute seule le meilleur. Elle-même (guide, réglages, mode démo) fonctionne hors ligne dans la version Android." },
     ],
   },
   {
@@ -36,7 +45,8 @@ export const CHAPTERS = [
           "Un **PC Windows** avec **Python 3**. Télécharge-le sur python.org et, pendant l'installation, coche la case « Add Python to PATH ».",
           "Le PC branché en **câble Ethernet**. En Wi-Fi, l'allumage à distance ne marche presque jamais.",
           "Pour allumer le PC : un **relais** toujours allumé sur le même réseau (Raspberry Pi ou autre petit appareil Linux). Un téléphone Android ne convient pas.",
-          "Un **compte Tailscale** gratuit, et l'appli Tailscale sur le téléphone, le PC et le relais.",
+          "Un **compte Tailscale** gratuit, et l'appli Tailscale sur le téléphone, le PC et le relais. Facultatif si tu n'utilises que la connexion directe.",
+          "Pour la connexion directe et les fichiers hors internet : la **version Android** (APK ou Play Store). La page web ne peut pas s'y connecter.",
         ],
       },
     ],
@@ -73,8 +83,8 @@ export const CHAPTERS = [
       { t: "p", text: "Copie ce qui s'affiche. Il fait au moins 16 caractères, sinon l'agent refuse de démarrer." },
       { t: "h", text: "3. Lancer l'agent" },
       { t: "p", text: "Dans l'invite de commandes, place-toi dans le dossier de agent.py, puis tape (remplace `ton-token`) :" },
-      { t: "code", text: "set MODE=pc\nset TOKEN=ton-token\nset ALLOWED_ORIGIN={ORIGIN}\npython agent.py" },
-      { t: "p", text: "`ALLOWED_ORIGIN` est l'adresse de cette appli. Si tu t'en sers aussi depuis un autre endroit (page web, version installée), ajoute l'autre adresse après une virgule." },
+      { t: "code", text: "set MODE=pc\nset TOKEN=ton-token\nset ALLOWED_ORIGIN={ORIGINS}\npython agent.py" },
+      { t: "p", text: "`ALLOWED_ORIGIN` liste les adresses qui ont le droit de parler à l'agent : celle de cette appli, et `https://localhost` qui est celle de l'appli Android. Sépare-les par une virgule." },
       { t: "h", text: "4. Rendre l'agent joignable" },
       { t: "p", text: "Dans une **deuxième** fenêtre de l'invite de commandes :" },
       { t: "code", text: "tailscale serve --bg 8765" },
@@ -103,7 +113,7 @@ export const CHAPTERS = [
       { t: "p", text: "Note l'**Adresse physique** de la carte Ethernet, de la forme `AA-BB-CC-DD-EE-FF`." },
       { t: "h", text: "Lancer l'agent sur le relais" },
       { t: "p", text: "Mets `agent.py` sur le relais (même méthode que pour le PC), puis tape. Le token doit être **différent** de celui du PC :" },
-      { t: "code", text: "export MODE=relay\nexport TOKEN=un-autre-token\nexport ALLOWED_ORIGIN={ORIGIN}\nexport WOL_MAC=AA:BB:CC:DD:EE:FF\npython3 agent.py" },
+      { t: "code", text: "export MODE=relay\nexport TOKEN=un-autre-token\nexport ALLOWED_ORIGIN={ORIGINS}\nexport WOL_MAC=AA:BB:CC:DD:EE:FF\npython3 agent.py" },
       { t: "p", text: "Puis `tailscale serve --bg 8765` sur le relais. Il a sa propre adresse, différente de celle du PC." },
       { t: "h", text: "Tester sans relais" },
       { t: "p", text: "Mets le téléphone sur le même Wi-Fi que le PC, installe une appli gratuite « Wake on LAN » du Play Store, entre l'adresse MAC, éteins le PC et envoie le signal. S'il démarre, le PC est bien prêt." },
@@ -123,12 +133,83 @@ export const CHAPTERS = [
           "**Relais d'allumage** : l'adresse Tailscale du relais et son token.",
         ],
       },
-      { t: "p", text: "L'adresse commence par `https://` et finit par `.ts.net`. Pas de numéro de port, pas de `/` à la fin. Si aucune adresse en `https` n'apparaît, c'est que HTTPS Certificates n'est pas activé dans Tailscale." },
+      { t: "p", text: "Chaque bloc a aussi une ligne **Direct** (facultative) : l'adresse locale pour travailler sans internet, expliquée au chapitre « Sans internet »." },
+      { t: "p", text: "L'adresse Tailscale commence par `https://` et finit par `.ts.net`. Pas de numéro de port, pas de `/` à la fin. Si aucune adresse en `https` n'apparaît, c'est que HTTPS Certificates n'est pas activé dans Tailscale." },
       { t: "p", text: "Tout s'enregistre pendant que tu tapes, et reste sur ton téléphone. Si la ligne du haut affiche « Ordinateur en ligne », c'est gagné." },
     ],
   },
   {
+    id: "direct",
+    title: "Sans internet : connexion directe",
+    icon: "wifi",
+    color: "var(--teal)",
+    blocks: [
+      { t: "p", text: "La connexion directe relie le téléphone au PC **sans internet**, tant qu'ils sont sur le même petit réseau. Elle marche dans l'appli Android, pas dans la version web." },
+      { t: "h", text: "Choisis ton réseau" },
+      {
+        t: "list",
+        items: [
+          "**Point d'accès du téléphone** : active le point d'accès Wi-Fi mobile du téléphone, puis connecte le PC à ce Wi-Fi. Aucun forfait internet nécessaire.",
+          "**Même Wi-Fi** : téléphone et PC sur la même box ou le même routeur. Ça marche même sans internet, tant que la box est allumée.",
+          "**Bluetooth** : jumelle le PC et le téléphone, active le **partage de connexion Bluetooth** sur le téléphone, puis sur le PC : Panneau de configuration, Périphériques et imprimantes, clic droit sur le téléphone, Se connecter en utilisant, Point d'accès. C'est lent, mais suffisant pour les commandes.",
+          "**Câble USB** : partage de connexion USB sur le téléphone. C'est le plus rapide et le plus stable.",
+        ],
+      },
+      { t: "p", text: "Dans tous les cas, le Bluetooth ou le Wi-Fi ne fait que créer un petit réseau entre les deux appareils. C'est ce réseau que l'agent utilise." },
+      { t: "h", text: "1. Lancer l'agent en mode direct" },
+      { t: "p", text: "Ajoute la ligne `set LAN=1` avant `python agent.py` :" },
+      { t: "code", text: "set MODE=pc\nset TOKEN=ton-token\nset ALLOWED_ORIGIN={ORIGINS}\nset LAN=1\npython agent.py" },
+      { t: "p", text: "L'agent affiche alors des lignes « Connexion directe : http://192.168.x.x:8766 ». Retiens l'adresse du réseau que tu utilises (s'il y en a plusieurs, essaie-les)." },
+      { t: "h", text: "2. Autoriser Windows" },
+      { t: "p", text: "Au premier lancement, Windows demande d'autoriser Python dans le pare-feu : accepte pour les **réseaux privés**. Quand le PC est sur le point d'accès du téléphone, Windows le classe souvent en réseau **public** et bloque tout. Va dans Paramètres, Réseau et Internet, Wi-Fi, le nom du réseau, et choisis le profil **Privé**." },
+      { t: "h", text: "3. Remplir l'appli" },
+      { t: "p", text: "Dans Réglages, ligne **Direct** du bloc Ordinateur, tape juste l'adresse, par exemple `192.168.43.2`. Le token est le même. Quand la ligne du haut affiche « Ordinateur en ligne · direct », c'est bon." },
+      { t: "h", text: "Allumer le PC sans internet" },
+      { t: "p", text: "Un PC éteint ne rejoint aucun réseau, donc il faut toujours le relais (branché en câble sur le même réseau que le PC). Lance l'agent du relais avec `export LAN=1` et mets son adresse dans la ligne **Direct** du bloc Relais. Le point d'accès du téléphone ne peut pas réveiller un PC éteint." },
+      { t: "warn", text: "Sécurité : sur ce chemin, les commandes sont signées et le token ne passe jamais sur le réseau, mais le contenu des fichiers et des textes n'est pas chiffré. Utilise-le sur ton point d'accès ou sur ton propre Wi-Fi protégé par mot de passe, jamais sur un Wi-Fi public. Enlève `LAN=1` quand tu n'en as pas besoin." },
+    ],
+  },
+  {
+    id: "files",
+    title: "Transférer des fichiers",
+    icon: "folder",
+    color: "var(--blue)",
+    blocks: [
+      { t: "p", text: "Les fichiers passent par un **dossier de partage** sur le PC. Rien d'autre n'est visible depuis le téléphone." },
+      { t: "p", text: "Par défaut, c'est le dossier `WakeUp-Pc` dans ton dossier utilisateur, par exemple `C:\\Users\\TonNom\\WakeUp-Pc`. Il est créé tout seul au lancement de l'agent. Pour en choisir un autre, ajoute avant `python agent.py` : `set SHARE_DIR=D:\\Partage`." },
+      { t: "h", text: "Du PC vers le téléphone" },
+      {
+        t: "steps",
+        items: [
+          "Mets le fichier dans le dossier de partage du PC.",
+          "Dans l'appli, ouvre **Fichiers**.",
+          "Appuie sur le fichier. Le téléchargement se lance dans le navigateur du téléphone et le fichier arrive dans Téléchargements.",
+        ],
+      },
+      { t: "h", text: "Du téléphone vers le PC" },
+      {
+        t: "steps",
+        items: [
+          "Ouvre **Fichiers** et appuie sur **Envoyer vers le PC**.",
+          "Choisis un ou plusieurs fichiers.",
+          "Ils arrivent dans le dossier de partage (ou dans le sous-dossier que tu as ouvert). Un fichier du même nom n'est jamais écrasé : le nouveau devient `nom (1)`.",
+        ],
+      },
+      { t: "h", text: "À savoir" },
+      {
+        t: "list",
+        items: [
+          "Taille maximale : 1 Go par fichier. Pour changer, ajoute `set MAX_UPLOAD_MB=4096` avant de lancer l'agent.",
+          "Ça marche par Tailscale comme en connexion directe, donc avec ou sans internet. En Bluetooth, évite les gros fichiers : c'est lent.",
+          "En connexion directe, le navigateur peut prévenir qu'un téléchargement n'est pas sécurisé (pas de https). Choisis « Conserver » : le fichier vient bien de ton PC.",
+          "L'historique du PC (Infos et historique) garde la trace des fichiers envoyés et reçus.",
+        ],
+      },
+    ],
+  },
+  {
     id: "use",
+
     title: "Utiliser l'appli",
     icon: "play",
     color: "var(--green)",
@@ -143,7 +224,7 @@ export const CHAPTERS = [
           "**Rond gris** : vérification en cours, ou réglages vides.",
         ],
       },
-      { t: "p", text: "La vérification se refait toute seule toutes les 8 secondes." },
+      { t: "p", text: "La vérification se refait toute seule toutes les 8 secondes. « · direct » après « Ordinateur en ligne » veut dire que l'appli passe par la connexion directe, sans internet." },
       { t: "h", text: "Allumer le PC" },
       { t: "p", text: "Quand le PC est éteint, un gros bouton **Allumer l'ordinateur** apparaît. Appuie une fois, puis attends environ une minute : le temps que Windows démarre et que l'agent se lance. Le bouton est grisé si le relais est hors ligne." },
       { t: "h", text: "Les 4 actions de base" },
@@ -159,6 +240,7 @@ export const CHAPTERS = [
       {
         t: "list",
         items: [
+          "**Fichiers** : télécharger un fichier du PC vers le téléphone, ou en envoyer un du téléphone vers le PC (chapitre « Transférer des fichiers »).",
           "**Éteindre dans…** : 15 min, 30 min, 1 h, 2 h ou 4 h. Tu peux annuler depuis la même feuille.",
           "**Autres actions** : Hiberner, Se déconnecter (tu perds ce qui n'est pas enregistré) et Éteindre l'écran (il se rallume dès que tu bouges la souris).",
           "**Médias et volume** : précédent, lecture/pause, suivant, volume moins, muet, volume plus.",
@@ -197,7 +279,7 @@ export const CHAPTERS = [
           "Copie `start-wakeup.bat` dans le dossier qui s'ouvre.",
         ],
       },
-      { t: "code", text: '@echo off\nif "%1"=="" (\n  start "WakeUp-Pc" /min "%~f0" run\n  exit\n)\ncd /d C:\\wakeup\nset MODE=pc\nset TOKEN=ton-token\nset ALLOWED_ORIGIN={ORIGIN}\npython agent.py' },
+      { t: "code", text: '@echo off\nif "%1"=="" (\n  start "WakeUp-Pc" /min "%~f0" run\n  exit\n)\ncd /d C:\\wakeup\nset MODE=pc\nset TOKEN=ton-token\nset ALLOWED_ORIGIN={ORIGINS}\nrem Pour la connexion directe sans internet, enlève rem au début de la ligne suivante :\nrem set LAN=1\npython agent.py' },
       { t: "warn", text: "Ce fichier contient ton token en clair : ne le partage pas. Il ne démarre qu'après l'ouverture de ta session Windows. Pour que ça marche après un redémarrage sans toi, active l'ouverture automatique de session (outil Autologon de Microsoft)." },
     ],
   },
@@ -235,6 +317,8 @@ export const CHAPTERS = [
           "L'agent n'écoute qu'en local. C'est `tailscale serve` qui le rend visible, et seulement à tes appareils.",
           "Il faut un **token**, et l'agent se bloque 15 minutes après 5 essais ratés.",
           "L'agent refuse les requêtes qui ne viennent pas de l'adresse indiquée dans `ALLOWED_ORIGIN`.",
+          "En connexion directe, le token ne circule jamais : chaque requête est signée et ne marche qu'une seule fois. Seul le contenu des fichiers n'est pas chiffré, donc évite les Wi-Fi publics.",
+          "Seul le **dossier de partage** est accessible pour les fichiers. L'agent refuse tout chemin qui en sort.",
           "Utilise **deux tokens différents** : un pour le PC, un pour le relais.",
           "Ne partage jamais un token et n'envoie pas de capture des réglages.",
           "**Téléphone perdu ou volé** : va tout de suite dans la console Tailscale et retire l'appareil. Ensuite change les tokens.",
@@ -256,12 +340,15 @@ export const CHAPTERS = [
       { t: "p", text: "Le token est faux. Après 5 erreurs, l'agent se bloque 15 minutes : patiente, ou relance l'agent." },
       { t: "h", text: "Le PC ne s'allume pas" },
       { t: "p", text: "C'est presque toujours le Wake-on-LAN : BIOS, réglages Windows, démarrage rapide encore actif, PC en Wi-Fi, ou mauvaise adresse MAC. Fais le test sans relais (chapitre « Le relais »)." },
+      { t: "h", text: "La connexion directe ne trouve pas le PC" },
+      { t: "p", text: "Vérifie dans l'ordre : l'agent est lancé avec `LAN=1`, le téléphone et le PC sont sur le même réseau, l'adresse est bien celle affichée par l'agent, et Windows autorise Python (réseau en profil Privé). Si tu es sur un Wi-Fi sans internet, coupe les données mobiles : Android envoie parfois tout par la 4G ou la 5G." },
       { t: "h", text: "Messages en bas de l'écran" },
       {
         t: "list",
         items: [
           "**« Injoignable. Tailscale est-il actif ? »** : le téléphone n'atteint pas l'appareil.",
-          "**« token invalide »** : le token des réglages n'est pas celui de l'agent.",
+          "**« token invalide »** ou **« signature invalide »** : le token des réglages n'est pas celui de l'agent.",
+          "**« pas assez de place sur le PC »** ou **« fichier trop gros »** : libère de la place, ou augmente `MAX_UPLOAD_MB`.",
           "**« verrouillé, réessaie plus tard »** : trop d'erreurs, l'agent attend 15 minutes.",
           "**« origine refusée »** : `ALLOWED_ORIGIN` ne correspond pas à l'adresse de l'appli. Recopie-la depuis le chapitre « Installer l'agent ».",
           "**« outil introuvable sur le PC »** ou **« appli non autorisée »** : la commande n'existe pas sur le PC, ou l'appli n'est pas dans `apps.json`.",

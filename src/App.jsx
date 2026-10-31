@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { call, load, save } from "./api";
+import { call, load, save, isNative, normLan } from "./api";
 import { hasPin } from "./pin";
 import useStatus from "./useStatus";
 import Settings from "./Settings";
 import Guide from "./Guide";
+import { FilesSheet } from "./Files";
 import Row from "./Row";
 import Icon from "./icons";
 import { Lock, PinSheet } from "./Pin";
@@ -28,10 +29,11 @@ const EXTRA = [
 
 // Rangées qui ouvrent une feuille
 const TOOLS = [
+  { id: "files", label: "Fichiers", icon: "folder", color: "var(--blue)" },
   { id: "timer", label: "Éteindre dans…", icon: "clock", color: "var(--orange)" },
   { id: "other", label: "Autres actions", icon: "dots", color: "var(--secondary)" },
   { id: "media", label: "Médias et volume", icon: "music", color: "var(--pink)" },
-  { id: "send", label: "Envoyer au PC", icon: "send", color: "var(--blue)" },
+  { id: "send", label: "Envoyer au PC", icon: "send", color: "var(--indigo)" },
   { id: "info", label: "Infos et historique", icon: "info", color: "var(--teal)" },
 ];
 
@@ -49,6 +51,13 @@ const buzz = (pattern) => {
   } catch (e) {}
 };
 
+// Fusionne l'état de deux routes vers le même appareil
+const merge = (a, b) => {
+  if (a === "on" || b === "on") return "on";
+  for (const s of ["check", "denied", "off"]) if (a === s || b === s) return s;
+  return "none";
+};
+
 export default function App() {
   const [cfg, setCfg] = useState(load);
   const [view, setView] = useState(null); // feuille ouverte : settings, guide, pin, timer, other, media, send, info
@@ -60,15 +69,32 @@ export default function App() {
 
   // Mode démo : faux ordinateur et faux relais, la vraie config n'est pas touchée
   const demo = Boolean(cfg.demo);
-  const pcUrl = demo ? "demo" : cfg.pcUrl;
   const pcToken = demo ? "pc" : cfg.pcToken;
-  const relayUrl = demo ? "demo" : cfg.relayUrl;
   const relayToken = demo ? "relay" : cfg.relayToken;
 
+  // Deux routes vers chaque appareil : Tailscale (internet) et connexion directe (réseau local).
+  // La connexion directe n'existe que dans l'appli Android.
+  const direct = !demo && isNative();
+  const pcTs = demo ? "demo" : cfg.pcUrl;
+  const pcLan = direct ? normLan(cfg.lanPcUrl) : "";
+  const relayTs = demo ? "demo" : cfg.relayUrl;
+  const relayLan = direct ? normLan(cfg.lanRelayUrl) : "";
+
   // Pas de vérification réseau tant que l'appli est verrouillée
-  const pc = useStatus(locked ? "" : pcUrl, pcToken);
-  const relay = useStatus(locked ? "" : relayUrl, relayToken);
-  const configured = demo || Boolean(cfg.pcUrl && cfg.pcToken);
+  const pcTsState = useStatus(locked ? "" : pcTs, pcToken);
+  const pcLanState = useStatus(locked ? "" : pcLan, pcToken);
+  const relayTsState = useStatus(locked ? "" : relayTs, relayToken);
+  const relayLanState = useStatus(locked ? "" : relayLan, relayToken);
+
+  const pc = merge(pcTsState, pcLanState);
+  const relay = merge(relayTsState, relayLanState);
+
+  // La route directe passe avant : plus rapide et sans internet
+  const pcRoute = pcLanState === "on" ? { base: pcLan, token: pcToken } : { base: pcTs, token: pcToken };
+  const relayRoute = relayLanState === "on" ? { base: relayLan, token: relayToken } : { base: relayTs, token: relayToken };
+  const viaLan = pc === "on" && pcLanState === "on";
+
+  const configured = demo || Boolean((cfg.pcUrl || cfg.lanPcUrl) && cfg.pcToken);
 
   // Reverrouillage quand on quitte l'appli plus de 30 secondes
   useEffect(() => {
@@ -89,15 +115,22 @@ export default function App() {
 
   // Envoie une action au PC (ou au relais avec wake: true). Renvoie la réponse, ou null en cas d'erreur.
   const go = async (id, { body, ok, wake } = {}) => {
-    const [url, token] = wake ? [relayUrl, relayToken] : [pcUrl, pcToken];
+    const route = wake ? relayRoute : pcRoute;
     try {
-      const j = await call(url, token, id, body);
+      const j = await call(route.base, route.token, id, body);
       buzz(12);
       if (ok) say(ok);
       return j;
     } catch (e) {
       buzz([12, 50, 12]);
-      say(e.message === "Failed to fetch" ? "Injoignable. Tailscale est-il actif ?" : e.message, "error");
+      say(
+        e.message === "Failed to fetch"
+          ? "Injoignable. Tailscale ou la connexion directe est-il actif ?"
+          : e.message === "signature invalide"
+          ? "Token refusé : vérifie qu'il est identique à celui de l'agent"
+          : e.message,
+        "error"
+      );
       return null;
     }
   };
@@ -175,7 +208,7 @@ export default function App() {
           <>
             <div className="pill">
               <span className={"dot " + dotClass}></span>
-              {LABELS[pc]}
+              {LABELS[pc]}{viaLan ? " · direct" : ""}
             </div>
 
             {pc === "on" ? (
@@ -221,6 +254,7 @@ export default function App() {
       )}
       {view === "guide" && <Guide close={close} />}
       {view === "pin" && <PinSheet say={say} close={close} />}
+      {view === "files" && <FilesSheet route={pcRoute} go={go} say={say} close={close} />}
       {view === "timer" && <TimerSheet go={go} close={close} />}
       {view === "other" && <OtherSheet actions={EXTRA} tap={tap} armed={armed} close={close} />}
       {view === "media" && <MediaSheet go={go} close={close} />}

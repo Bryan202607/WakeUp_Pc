@@ -5,7 +5,8 @@ import { CHAPTERS } from "./guideData";
 import agentSource from "../agent.py?raw"; // le programme de l'agent est embarqué dans l'appli
 
 // {ORIGIN} devient l'adresse exacte de cette appli
-const fill = (t) => t.split("{ORIGIN}").join(window.location.origin);
+const origins = () => Array.from(new Set([window.location.origin, "https://localhost"])).join(",");
+const fill = (t) => t.split("{ORIGINS}").join(origins()).split("{ORIGIN}").join(window.location.origin);
 
 // **gras** et `code` dans les textes
 const rich = (t) =>
