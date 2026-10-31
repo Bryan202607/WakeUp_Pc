@@ -1,5 +1,7 @@
 import Sheet from "./Sheet";
+import Row from "./Row";
 import { save } from "./api";
+import { hasPin } from "./pin";
 
 function Field({ label, value, onChange, placeholder, type = "text" }) {
   return (
@@ -18,15 +20,15 @@ function Field({ label, value, onChange, placeholder, type = "text" }) {
   );
 }
 
-export default function Settings({ cfg, setCfg, close }) {
-  const set = (key) => (e) => {
-    const next = { ...cfg, [key]: e.target.value.trim() };
+export default function Settings({ cfg, setCfg, close, openPin, openGuide }) {
+  const persist = (next) => {
     setCfg(next);
     save(next);
   };
+  const set = (key) => (e) => persist({ ...cfg, [key]: e.target.value.trim() });
 
   return (
-    <Sheet title="Connexion" onClose={close}>
+    <Sheet title="Réglages" onClose={close}>
       {({ dismiss }) => (
         <>
           <div className="cap">Ordinateur</div>
@@ -44,6 +46,31 @@ export default function Settings({ cfg, setCfg, close }) {
             <Field label="Token" type="password" value={cfg.relayToken} onChange={set("relayToken")} placeholder="Différent du PC" />
           </div>
           <p className="foot">Même principe, mais avec l'adresse et le token du relais. Tout reste sur cet appareil.</p>
+
+          <div className="cap">Sécurité</div>
+          <div className="list">
+            <Row icon="shield" color="var(--blue)" label="Code PIN" detail={hasPin() ? "Activé" : "Désactivé"} chevron onClick={openPin} />
+          </div>
+
+          <div className="cap">Aide</div>
+          <div className="list">
+            <Row icon="book" color="var(--teal)" label="Guide d'utilisation" chevron onClick={openGuide} />
+          </div>
+
+          <div className="cap">Démonstration</div>
+          <div className="list">
+            <div className="field sw">
+              <span>Mode démo</span>
+              <button
+                role="switch"
+                aria-checked={Boolean(cfg.demo)}
+                aria-label="Mode démo"
+                className={"switch" + (cfg.demo ? " on" : "")}
+                onClick={() => persist({ ...cfg, demo: !cfg.demo })}
+              />
+            </div>
+          </div>
+          <p className="foot">Essaie l'appli avec un faux ordinateur. Rien n'est envoyé, tes réglages ne changent pas.</p>
 
           <button className="big" onClick={dismiss}>
             Terminé

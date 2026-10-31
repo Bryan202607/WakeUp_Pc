@@ -46,11 +46,18 @@ export default function Sheet({ title, onClose, children }) {
     [render]
   );
 
+  const measure = useCallback(() => {
+    if (sheetRef.current) height.current = sheetRef.current.offsetHeight + 40;
+  }, []);
+
   const finish = useCallback(() => {
     if (y.current >= height.current - 1) onClose();
   }, [onClose]);
 
-  const dismiss = useCallback(() => move(height.current, { done: finish }), [move, finish]);
+  const dismiss = useCallback(() => {
+    measure();
+    move(height.current, { done: finish });
+  }, [measure, move, finish]);
 
   useLayoutEffect(() => {
     height.current = sheetRef.current.offsetHeight + 40;
@@ -70,6 +77,7 @@ export default function Sheet({ title, onClose, children }) {
 
   const onDown = (e) => {
     e.currentTarget.setPointerCapture(e.pointerId);
+    measure();
     if (anim.current) anim.current.stop();
     drag.current = {
       startY: e.clientY,

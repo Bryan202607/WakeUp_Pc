@@ -10,6 +10,7 @@ export default function useStatus(base, token) {
       return;
     }
     let alive = true;
+    setStatus("check");
 
     const tick = async () => {
       try {
