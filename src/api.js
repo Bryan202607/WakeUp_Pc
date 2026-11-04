@@ -89,7 +89,23 @@ const fail = (j, status) => Object.assign(new Error(j.error || "Erreur " + statu
 // Sert aux testeurs du Play Store et à essayer l'appli sans rien installer.
 // ---------------------------------------------------------------------------
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-const demo = { on: true, at: null, log: [], t0: Date.now() };
+const demo = {
+  on: true,
+  at: null,
+  awake: null,
+  clip: "Texte copié sur le PC de démonstration",
+  sched: [{ id: "a1b2c3", time: "07:00", days: [0, 1, 2, 3, 4], on: true, label: "" }],
+  dl: [],
+  procs: [
+    { n: "chrome.exe", c: 14, m: 1850000, p: false },
+    { n: "Code.exe", c: 6, m: 920000, p: false },
+    { n: "Spotify.exe", c: 5, m: 410000, p: false },
+    { n: "explorer.exe", c: 1, m: 180000, p: true },
+    { n: "notepad.exe", c: 2, m: 24000, p: false },
+  ],
+  log: [],
+  t0: Date.now(),
+};
 const day = Math.floor(Date.now() / 1000) - 86400;
 const demoTree = {
   "": [
@@ -120,6 +136,14 @@ async function demoCall(token, action, body = {}) {
   // Le faux relais répond toujours, il rallume le faux PC
   if (token === "relay") {
     if (action === "wake") setTimeout(() => (demo.on = true), 1500);
+    if (action === "schedule_list") return { ok: true, items: demo.sched, now: "07:00", tz: "UTC" };
+    if (action === "schedule_add") {
+      const item = { id: Math.random().toString(16).slice(2, 8), time: body.time, days: body.days || [], on: true, label: body.label || "" };
+      demo.sched.push(item);
+      return { ok: true, item };
+    }
+    if (action === "schedule_del") demo.sched = demo.sched.filter((i) => i.id !== body.id);
+    if (action === "schedule_toggle") demo.sched.forEach((i) => i.id === body.id && (i.on = Boolean(body.on)));
     return { ok: true };
   }
   if (!demo.on) throw new Error("Failed to fetch");
@@ -160,6 +184,7 @@ async function demoCall(token, action, body = {}) {
         disk_total: 476e9,
         battery: { pct: 82, ac: true },
         shutdown_at: demo.at,
+        awake_until: demo.awake && demo.awake > now ? demo.awake : null,
         history: demo.log.slice(0, 20),
       };
     case "apps":
@@ -167,6 +192,16 @@ async function demoCall(token, action, body = {}) {
     case "files": {
       const p = body.path || "";
       return { ok: true, path: demoTree[p] ? p : "", root: "C:\\Users\\Demo\\WakeUp-Pc", max_upload: 1024 * 1048576, entries: demoTree[p] || demoTree[""], more: false };
+    }
+    case "mkdir": {
+      const dir = body.path || "";
+      const key = demoTree[dir] ? dir : "";
+      const name = (body.name || "Dossier").trim();
+      if (demoTree[key].some((e) => e.n === name)) throw new Error("ce nom existe déjà");
+      demoTree[key].push({ n: name, d: true, s: 0, m: now });
+      demoTree[(key ? key + "/" : "") + name] = [];
+      rec("Dossier créé : " + name);
+      return { ok: true, name };
     }
     case "open":
       rec("Ouverture : " + body.name);
@@ -179,23 +214,81 @@ async function demoCall(token, action, body = {}) {
       }
       break;
     case "clip":
-      rec("Texte copié (" + (body.text || "").length + " caractères)");
+      demo.clip = body.text || "";
+      rec("Texte copié (" + demo.clip.length + " caractères)");
       break;
+    case "clipget":
+      return { ok: true, text: demo.clip, truncated: false };
+    case "awake":
+      demo.awake = body.minutes ? now + body.minutes * 60 : null;
+      rec(body.minutes ? "PC gardé éveillé " + body.minutes + " min" : "Veille autorisée à nouveau");
+      return { ok: true, awake_until: demo.awake };
+    case "procs":
+      return { ok: true, procs: demo.procs.map((p) => ({ ...p })) };
+    case "kill":
+      demo.procs = demo.procs.filter((p) => p.n !== body.name);
+      rec("Programme fermé : " + body.name);
+      break;
+    case "shortcuts":
+      return { ok: true, shortcuts: [{ n: "Mon adresse IP", confirm: false }, { n: "Vider la corbeille", confirm: true }] };
+    case "run":
+      rec("Raccourci : " + body.name);
+      if (body.name === "Mon adresse IP") return { ok: true, output: "Carte Wi-Fi\n  Adresse IPv4 : 192.168.43.2\n  Passerelle   : 192.168.43.1", code: 0 };
+      break;
+    case "dl_start": {
+      const job = { id: Math.random().toString(16).slice(2, 10), name: (body.name || (body.url || "").split("/").pop() || "fichier").slice(0, 40), got: 0, total: 8000000, state: "run", error: "" };
+      demo.dl.unshift(job);
+      rec("Téléchargement lancé");
+      return { ok: true, id: job.id };
+    }
+    case "dl_status":
+      demo.dl.forEach((j) => {
+        if (j.state === "run") {
+          j.got = Math.min(j.total, j.got + 2500000);
+          if (j.got >= j.total) j.state = "ok";
+        }
+      });
+      return { ok: true, jobs: demo.dl.map((j) => ({ ...j })) };
+    case "dl_cancel":
+      demo.dl.forEach((j) => j.id === body.id && j.state === "run" && ((j.state = "err"), (j.error = "annulé")));
+      break;
+    case "mouse":
+    case "key":
+      return { ok: true };
     default:
       break;
   }
   return { ok: true };
 }
 
-async function demoUpload(file, dir, onProgress) {
+async function demoUpload(file, dir, onProgress, opts = {}) {
   for (let i = 1; i <= 5; i++) {
     await wait(150);
     if (onProgress) onProgress(i / 5);
   }
+  const now = Math.floor(Date.now() / 1000);
   const key = demoTree[dir] ? dir : "";
-  demoTree[key].push({ n: file.name, d: false, s: file.size, m: Math.floor(Date.now() / 1000) });
-  demo.log.unshift({ t: Math.floor(Date.now() / 1000), text: "Fichier reçu : " + file.name });
+  if (opts.unzip) {
+    await wait(400); // extraction
+    const name = file.name.replace(/\.zip$/i, "");
+    demoTree[key].push({ n: name, d: true, s: 0, m: now });
+    demoTree[(key ? key + "/" : "") + name] = [];
+    demo.log.unshift({ t: now, text: "Dossier reçu : " + name });
+    return { ok: true, name, count: 1, size: file.size };
+  }
+  demoTree[key].push({ n: file.name, d: false, s: file.size, m: now });
+  demo.log.unshift({ t: now, text: "Fichier reçu : " + file.name });
   return { ok: true, name: file.name, size: file.size };
+}
+
+// Adresse d'une capture d'écran (signée, valable une seule fois)
+export async function shotUrl(base, token, params = {}) {
+  if (base === "demo") {
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3a6df0"/><stop offset="1" stop-color="#8e54e9"/></linearGradient></defs><rect width="1280" height="720" fill="url(#g)"/><rect x="180" y="110" width="620" height="400" rx="14" fill="#ffffff"/><rect x="180" y="110" width="620" height="40" rx="14" fill="#e8e8ed"/><text x="210" y="138" font-family="sans-serif" font-size="18" fill="#444">Bloc-notes</text><text x="210" y="200" font-family="sans-serif" font-size="22" fill="#222">Écran de démonstration</text><text x="210" y="240" font-family="sans-serif" font-size="18" fill="#666">Ici s\'affichera l\'écran de ton PC.</text><rect y="672" width="1280" height="48" fill="#1c1c1e" opacity="0.85"/></svg>';
+    return "data:image/svg+xml;utf8," + encodeURIComponent(svg);
+  }
+  return signedUrl(base, token, "GET", "/shot", params);
 }
 
 // ---------------------------------------------------------------------------
@@ -226,12 +319,13 @@ export async function call(base, token, action, body) {
 }
 
 // Envoie un fichier du téléphone vers le dossier de partage du PC
-export async function upload(base, token, file, dir, onProgress) {
-  if (base === "demo") return demoUpload(file, dir, onProgress);
+// opts.unzip : le fichier est un .zip, le PC l'extrait dans un nouveau dossier (c'est ainsi qu'on envoie un dossier)
+export async function upload(base, token, file, dir, onProgress, opts = {}) {
+  if (base === "demo") return demoUpload(file, dir, onProgress, opts);
   const b = base.replace(/\/+$/, "");
 
   const once = async (force) => {
-    const url = await signedUrl(b, token, "PUT", "/upload", { name: file.name, dir: dir || "" }, force);
+    const url = await signedUrl(b, token, "PUT", "/upload", { name: file.name, dir: dir || "", ...(opts.unzip ? { unzip: "1" } : {}) }, force);
     return new Promise((resolve, reject) => {
       const x = new XMLHttpRequest();
       x.open("PUT", url);

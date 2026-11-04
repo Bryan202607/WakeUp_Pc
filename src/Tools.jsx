@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import Sheet from "./Sheet";
 import Row from "./Row";
 import Icon from "./icons";
+import { fmtSize } from "./util";
 
 const useTick = (ms = 20000) => {
   const [, set] = useState(0);
@@ -29,7 +30,7 @@ const dur = (min) => {
 
 const gb = (b) => Math.round(b / 1e9) + " Go";
 
-// ---------------------------------------------------------------- Éteindre dans…
+// ---------------------------------------------------------------- Minuteries : extinction, veille, réveil
 const PRESETS = [
   [15, "15 minutes"],
   [30, "30 minutes"],
@@ -38,46 +39,80 @@ const PRESETS = [
   [240, "4 heures"],
 ];
 
-export function TimerSheet({ go, close }) {
-  const [at, setAt] = useState(null); // heure d'extinction prévue (secondes), ou null
+const STAY = [
+  [30, "30 minutes"],
+  [60, "1 heure"],
+  [120, "2 heures"],
+  [240, "4 heures"],
+  [480, "8 heures"],
+];
+
+export function TimerSheet({ go, close, openWake }) {
+  const [info, setInfo] = useState({ at: null, awake: null }); // extinction prévue, veille bloquée jusqu'à (secondes)
   useTick();
 
   useEffect(() => {
-    go("info").then((j) => j && setAt(j.shutdown_at || null));
+    go("info").then((j) => j && setInfo({ at: j.shutdown_at || null, awake: j.awake_until || null }));
   }, []);
 
   const plan = async (m, label) => {
     const j = await go("schedule", { body: { minutes: m }, ok: "Extinction dans " + label });
-    if (j) setAt(j.shutdown_at);
+    if (j) setInfo((i) => ({ ...i, at: j.shutdown_at }));
   };
 
   const cancel = async () => {
     const j = await go("cancel", { ok: "Extinction annulée" });
-    if (j) setAt(null);
+    if (j) setInfo((i) => ({ ...i, at: null }));
   };
 
-  const left = at ? Math.max(0, Math.round((at * 1000 - Date.now()) / 60000)) : 0;
+  const stay = async (m, label) => {
+    const j = await go("awake", { body: { minutes: m }, ok: m ? "PC éveillé pendant " + label : "Veille autorisée" });
+    if (j) setInfo((i) => ({ ...i, awake: j.awake_until || null }));
+  };
+
+  const left = (t) => (t ? Math.max(0, Math.round((t * 1000 - Date.now()) / 60000)) : 0);
 
   return (
-    <Sheet title="Éteindre dans…" onClose={close}>
+    <Sheet title="Minuteries" onClose={close}>
       {() => (
         <>
-          {at && (
+          {info.at && (
             <>
-              <div className="cap">Prévue</div>
+              <div className="cap">Extinction prévue</div>
               <div className="list">
-                <Row flat label={"À " + hhmm(at)} detail={"dans " + dur(left)} />
+                <Row flat label={"À " + hhmm(info.at)} detail={"dans " + dur(left(info.at))} />
                 <Row flat accent label="Annuler l'extinction" onClick={cancel} />
               </div>
             </>
           )}
-          <div className="cap">{at ? "Changer la durée" : "Durée"}</div>
+          <div className="cap">{info.at ? "Changer : éteindre dans…" : "Éteindre dans…"}</div>
           <div className="list">
             {PRESETS.map(([m, label]) => (
               <Row key={m} flat label={label} onClick={() => plan(m, label)} />
             ))}
           </div>
-          <p className="foot">Tu peux annuler à tout moment, depuis ici.</p>
+
+          {info.awake && (
+            <>
+              <div className="cap">Veille bloquée</div>
+              <div className="list">
+                <Row flat label={"Éveillé jusqu'à " + hhmm(info.awake)} detail={"dans " + dur(left(info.awake))} />
+                <Row flat accent label="Autoriser la veille" onClick={() => stay(0)} />
+              </div>
+            </>
+          )}
+          <div className="cap">Garder le PC éveillé</div>
+          <div className="list">
+            {STAY.map(([m, label]) => (
+              <Row key={m} flat label={label} onClick={() => stay(m, label)} />
+            ))}
+          </div>
+          <p className="foot">Le PC ne se met pas en veille tout seul pendant ce temps, par exemple pendant un téléchargement. L'écran peut s'éteindre.</p>
+
+          <div className="cap">Allumer</div>
+          <div className="list">
+            <Row icon="clock" color="var(--orange)" label="Réveil programmé" chevron onClick={openWake} />
+          </div>
         </>
       )}
     </Sheet>
@@ -136,14 +171,27 @@ export function MediaSheet({ go, close }) {
   );
 }
 
-// ---------------------------------------------------------------- Envoyer au PC
+// ---------------------------------------------------------------- Envoyer au PC : applis, sites, téléchargements
 export function SendSheet({ go, close }) {
   const [apps, setApps] = useState(null);
   const [url, setUrl] = useState("");
-  const [text, setText] = useState("");
+  const [dlUrl, setDlUrl] = useState("");
+  const [jobs, setJobs] = useState([]);
 
   useEffect(() => {
     go("apps").then((j) => setApps(j ? j.apps : []));
+  }, []);
+
+  // Suivi des téléchargements du PC
+  const poll = async () => {
+    const j = await go("dl_status", { quiet: true });
+    if (j) setJobs(j.jobs);
+  };
+
+  useEffect(() => {
+    poll();
+    const id = setInterval(poll, 2500);
+    return () => clearInterval(id);
   }, []);
 
   const openUrl = () => {
@@ -153,10 +201,19 @@ export function SendSheet({ go, close }) {
     go("url", { body: { url: u }, ok: "Site ouvert sur le PC" });
   };
 
-  const copy = async () => {
-    const j = await go("clip", { body: { text }, ok: "Texte copié sur le PC" });
-    if (j) setText("");
+  const startDl = async () => {
+    let u = dlUrl.trim();
+    if (!u) return;
+    if (!/^https?:\/\//i.test(u)) u = "https://" + u;
+    const j = await go("dl_start", { body: { url: u }, ok: "Téléchargement lancé sur le PC" });
+    if (j) {
+      setDlUrl("");
+      poll();
+    }
   };
+
+  const state = (j) =>
+    j.state === "run" ? (j.total ? Math.round((100 * j.got) / j.total) + " %" : fmtSize(j.got)) : j.state === "ok" ? "Terminé · " + fmtSize(j.total) : j.error;
 
   return (
     <Sheet title="Envoyer au PC" onClose={close}>
@@ -175,7 +232,7 @@ export function SendSheet({ go, close }) {
             </p>
           )}
 
-          <div className="cap">Site web</div>
+          <div className="cap">Ouvrir un site sur le PC</div>
           <div className="list">
             <label className="field left">
               <input
@@ -195,19 +252,43 @@ export function SendSheet({ go, close }) {
             </label>
           </div>
 
-          <div className="cap">Presse-papiers du PC</div>
+          <div className="cap">Télécharger sur le PC</div>
           <div className="list">
-            <textarea
-              className="area"
-              value={text}
-              maxLength={2000}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="Écris ou colle un texte"
-            />
+            <label className="field left">
+              <input
+                type="text"
+                inputMode="url"
+                value={dlUrl}
+                onChange={(e) => setDlUrl(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && startDl()}
+                placeholder="Lien du fichier"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+              />
+              <button className="mini" disabled={!dlUrl.trim()} onClick={startDl}>
+                Lancer
+              </button>
+            </label>
           </div>
-          <button className="big" disabled={!text} onClick={copy}>
-            Copier sur le PC
-          </button>
+          {jobs.length > 0 && (
+            <div className="list">
+              {jobs.map((j) => (
+                <Row
+                  key={j.id}
+                  flat
+                  danger={j.state === "err"}
+                  label={j.name}
+                  detail={state(j)}
+                  onClick={j.state === "run" ? () => go("dl_cancel", { body: { id: j.id }, ok: "Téléchargement annulé" }) : undefined}
+                />
+              ))}
+            </div>
+          )}
+          <p className="foot">
+            Le PC télécharge le fichier dans son dossier partagé : tu le retrouves ensuite dans Fichiers. Appuie sur un téléchargement en cours pour
+            l'annuler.
+          </p>
         </>
       )}
     </Sheet>

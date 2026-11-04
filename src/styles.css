@@ -897,3 +897,113 @@ div.row {
 .guide-list {
   margin-top: 12px;
 }
+
+/* ================= Souris, capture, réveil ================= */
+.tpad {
+  height: 250px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 18px;
+  border-radius: 20px;
+  background: var(--fill);
+  color: var(--secondary);
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.4;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.tbtns {
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.kgrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin: 10px 0;
+}
+.kbtn {
+  min-height: 42px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--fill);
+  color: var(--label);
+  font-size: 14px;
+  font-weight: 500;
+}
+.kbtn:active {
+  background: var(--pressed);
+}
+.kbtn.alt {
+  color: var(--blue);
+}
+.field input[type="range"] {
+  flex: 1;
+  accent-color: var(--blue);
+}
+.field input[type="time"] {
+  flex: 1;
+  text-align: right;
+}
+.shot {
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--fill);
+}
+.shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.shot-empty {
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--secondary);
+  font-size: 15px;
+}
+.daychips {
+  display: flex;
+  gap: 6px;
+  margin: 10px 0 4px;
+}
+.daychip {
+  flex: 1;
+  min-height: 38px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: var(--fill);
+  color: var(--secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+.daychip.on {
+  background: var(--blue);
+  color: #fff;
+}
+.iconx {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--secondary);
+}
+.iconx:active {
+  background: var(--pressed);
+}
+.link.bio {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}

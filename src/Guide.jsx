@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import Sheet from "./Sheet";
 import Row from "./Row";
 import { CHAPTERS } from "./guideData";
+import { copyText } from "./util";
 import agentSource from "../agent.py?raw"; // le programme de l'agent est embarqué dans l'appli
 
 // {ORIGIN} devient l'adresse exacte de cette appli
@@ -15,27 +16,6 @@ const rich = (t) =>
     .map((s, i) =>
       s.startsWith("**") ? <b key={i}>{s.slice(2, -2)}</b> : s.startsWith("`") ? <code key={i}>{s.slice(1, -1)}</code> : s
     );
-
-async function copyText(text) {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch (e) {
-    try {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.select();
-      const ok = document.execCommand("copy");
-      document.body.removeChild(ta);
-      return ok;
-    } catch (e2) {
-      return false;
-    }
-  }
-}
 
 function CopyBtn({ text, label = "Copier" }) {
   const [state, setState] = useState("");

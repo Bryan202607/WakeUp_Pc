@@ -9,6 +9,7 @@ import Row from "./Row";
 import Icon from "./icons";
 import { Lock, PinSheet } from "./Pin";
 import { TimerSheet, OtherSheet, MediaSheet, SendSheet, InfoSheet } from "./Tools";
+import { TouchpadSheet, ScreenSheet, ClipboardSheet, ProcsSheet, ShortcutsSheet, WakeSheet } from "./More";
 
 const GRACE = 30000; // l'appli se reverrouille après 30 s en arrière-plan
 
@@ -27,14 +28,34 @@ const EXTRA = [
   { id: "screenoff", label: "Éteindre l'écran", icon: "monitor", color: "var(--secondary)" },
 ];
 
-// Rangées qui ouvrent une feuille
-const TOOLS = [
-  { id: "files", label: "Fichiers", icon: "folder", color: "var(--blue)" },
-  { id: "timer", label: "Éteindre dans…", icon: "clock", color: "var(--orange)" },
-  { id: "other", label: "Autres actions", icon: "dots", color: "var(--secondary)" },
-  { id: "media", label: "Médias et volume", icon: "music", color: "var(--pink)" },
-  { id: "send", label: "Envoyer au PC", icon: "send", color: "var(--indigo)" },
-  { id: "info", label: "Infos et historique", icon: "info", color: "var(--teal)" },
+// Rangées qui ouvrent une feuille, rangées par thème
+const GROUPS = [
+  {
+    cap: "Contrôle",
+    items: [
+      { id: "touchpad", label: "Souris et clavier", icon: "pointer", color: "var(--blue)" },
+      { id: "screen", label: "Capture d'écran", icon: "monitor", color: "var(--indigo)" },
+      { id: "media", label: "Médias et volume", icon: "music", color: "var(--pink)" },
+      { id: "clipboard", label: "Presse-papiers", icon: "clipboard", color: "var(--orange)" },
+    ],
+  },
+  {
+    cap: "Échanges",
+    items: [
+      { id: "files", label: "Fichiers et dossiers", icon: "folder", color: "var(--blue)" },
+      { id: "send", label: "Envoyer au PC", icon: "send", color: "var(--teal)" },
+    ],
+  },
+  {
+    cap: "Gestion",
+    items: [
+      { id: "procs", label: "Programmes en cours", icon: "list", color: "var(--red)" },
+      { id: "shortcuts", label: "Raccourcis", icon: "terminal", color: "var(--indigo)" },
+      { id: "timer", label: "Minuteries", icon: "clock", color: "var(--orange)" },
+      { id: "other", label: "Autres actions", icon: "dots", color: "var(--secondary)" },
+      { id: "info", label: "Infos et historique", icon: "info", color: "var(--teal)" },
+    ],
+  },
 ];
 
 const LABELS = {
@@ -65,6 +86,7 @@ export default function App() {
   const [armed, setArmed] = useState(null);
   const [toast, setToast] = useState(null);
   const armTimer = useRef(null);
+  const lastErr = useRef(0);
   const toastTimer = useRef(null);
 
   // Mode démo : faux ordinateur et faux relais, la vraie config n'est pas touchée
@@ -114,14 +136,18 @@ export default function App() {
   };
 
   // Envoie une action au PC (ou au relais avec wake: true). Renvoie la réponse, ou null en cas d'erreur.
-  const go = async (id, { body, ok, wake } = {}) => {
+  const go = async (id, { body, ok, wake, quiet } = {}) => {
     const route = wake ? relayRoute : pcRoute;
     try {
       const j = await call(route.base, route.token, id, body);
-      buzz(12);
+      if (!quiet) buzz(12);
       if (ok) say(ok);
       return j;
     } catch (e) {
+      if (quiet) {
+        if (Date.now() - lastErr.current < 4000) return null; // pas de message à chaque mouvement de souris
+        lastErr.current = Date.now();
+      }
       buzz([12, 50, 12]);
       say(
         e.message === "Failed to fetch"
@@ -226,11 +252,16 @@ export default function App() {
                     />
                   ))}
                 </section>
-                <section className="group">
-                  {TOOLS.map((t) => (
-                    <Row key={t.id} icon={t.icon} color={t.color} label={t.label} chevron onClick={() => setView(t.id)} />
-                  ))}
-                </section>
+                {GROUPS.map((g) => (
+                  <div key={g.cap}>
+                    <div className="cap">{g.cap}</div>
+                    <section className="group">
+                      {g.items.map((t) => (
+                        <Row key={t.id} icon={t.icon} color={t.color} label={t.label} chevron onClick={() => setView(t.id)} />
+                      ))}
+                    </section>
+                  </div>
+                ))}
               </div>
             ) : (
               <div className="appear">
@@ -243,6 +274,11 @@ export default function App() {
                   Allumer l'ordinateur
                 </button>
                 {relayNote && <p className="note">{relayNote}</p>}
+                {relay === "on" && (
+                  <section className="group">
+                    <Row icon="clock" color="var(--orange)" label="Réveil programmé" chevron onClick={() => setView("wake")} />
+                  </section>
+                )}
               </div>
             )}
           </>
@@ -255,7 +291,13 @@ export default function App() {
       {view === "guide" && <Guide close={close} />}
       {view === "pin" && <PinSheet say={say} close={close} />}
       {view === "files" && <FilesSheet route={pcRoute} go={go} say={say} close={close} />}
-      {view === "timer" && <TimerSheet go={go} close={close} />}
+      {view === "touchpad" && <TouchpadSheet go={go} close={close} />}
+      {view === "screen" && <ScreenSheet route={pcRoute} say={say} close={close} />}
+      {view === "clipboard" && <ClipboardSheet go={go} say={say} close={close} />}
+      {view === "procs" && <ProcsSheet go={go} close={close} />}
+      {view === "shortcuts" && <ShortcutsSheet go={go} close={close} />}
+      {view === "wake" && <WakeSheet go={go} close={close} />}
+      {view === "timer" && <TimerSheet go={go} close={close} openWake={() => setView("wake")} />}
       {view === "other" && <OtherSheet actions={EXTRA} tap={tap} armed={armed} close={close} />}
       {view === "media" && <MediaSheet go={go} close={close} />}
       {view === "send" && <SendSheet go={go} close={close} />}

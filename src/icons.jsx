@@ -45,6 +45,58 @@ const PATHS = {
       <circle cx="12" cy="19.2" r="0.8" />
     </>
   ),
+  upload: (
+    <>
+      <path d="M12 16V4M7 9l5-5 5 5" />
+      <path d="M5 20h14" />
+    </>
+  ),
+  download: (
+    <>
+      <path d="M12 4v12M7 11l5 5 5-5" />
+      <path d="M5 20h14" />
+    </>
+  ),
+  folderplus: (
+    <>
+      <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2.5h6.5A2.5 2.5 0 0 1 21 10v7.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z" />
+      <path d="M12 11v5M9.5 13.5h5" />
+    </>
+  ),
+  pointer: <path d="M5 3l14 7-6 2-2 6z" />,
+  keyboard: (
+    <>
+      <rect x="2.5" y="6" width="19" height="12" rx="2.5" />
+      <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10" />
+    </>
+  ),
+  clipboard: (
+    <>
+      <rect x="6" y="4" width="12" height="17" rx="2" />
+      <path d="M9 4h6v3H9z" />
+    </>
+  ),
+  list: (
+    <>
+      <path d="M9 6h11M9 12h11M9 18h11" />
+      <path d="M4.5 6h.01M4.5 12h.01M4.5 18h.01" />
+    </>
+  ),
+  terminal: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2.5" />
+      <path d="M7 9l3 3-3 3M12 15h5" />
+    </>
+  ),
+  fingerprint: (
+    <>
+      <path d="M12 4a7 7 0 0 0-7 7v3" />
+      <path d="M12 8a3 3 0 0 0-3 3v5" />
+      <path d="M12 12v6" />
+      <path d="M16 14v1a6 6 0 0 1-1 3" />
+      <path d="M19 11a7 7 0 0 0-3-5.3" />
+    </>
+  ),
   chevron: <path d="M9 6l6 6-6 6" />,
   clock: (
     <>

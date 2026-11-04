@@ -3,6 +3,7 @@ import Sheet from "./Sheet";
 import Row from "./Row";
 import Icon from "./icons";
 import { hasPin, setPin, checkPin, clearPin, wipeAll } from "./pin";
+import { bioOn, setBioOn, bioAvailable, bioAsk } from "./bio";
 
 const LEN = 6;
 
@@ -97,6 +98,15 @@ export function PinPad({ title, hint, onDone }) {
 // Écran affiché à l'ouverture de l'appli quand un code est activé
 export function Lock({ onUnlock }) {
   const [sure, setSure] = useState(false);
+  const withBio = bioOn();
+
+  // L'empreinte s'ouvre toute seule. Le code reste toujours possible.
+  const tryBio = async () => {
+    if (await bioAsk()) onUnlock();
+  };
+  useEffect(() => {
+    if (withBio) tryBio();
+  }, []);
 
   const check = async (pin) => {
     const r = await checkPin(pin);
@@ -110,6 +120,11 @@ export function Lock({ onUnlock }) {
         <Icon name="lock" size={26} />
       </div>
       <PinPad title="WakeUp-Pc" hint="Entre ton code" onDone={check} />
+      {withBio && (
+        <button className="link bio" onClick={tryBio}>
+          <Icon name="fingerprint" size={20} /> Utiliser l'empreinte
+        </button>
+      )}
       <button className={"link" + (sure ? " warn" : "")} onClick={() => (sure ? wipeAll() : setSure(true))}>
         {sure ? "Appuie encore : tout sera effacé sur cet appareil" : "Code oublié ?"}
       </button>
@@ -121,7 +136,26 @@ export function Lock({ onUnlock }) {
 export function PinSheet({ say, close }) {
   const [step, setStep] = useState("menu"); // menu | cur-change | cur-off | new | confirm
   const [note, setNote] = useState("");
+  const [avail, setAvail] = useState(false); // le téléphone a une empreinte configurée
+  const [, redraw] = useState(0);
   const first = useRef("");
+
+  useEffect(() => {
+    bioAvailable().then(setAvail);
+  }, []);
+
+  const toggleBio = async () => {
+    if (bioOn()) {
+      setBioOn(false);
+      say("Empreinte désactivée");
+    } else if (await bioAsk()) {
+      setBioOn(true);
+      say("Empreinte activée");
+    } else {
+      say("Empreinte non reconnue", "error");
+    }
+    redraw((n) => n + 1);
+  };
 
   return (
     <Sheet title="Code PIN" onClose={close}>
@@ -134,7 +168,21 @@ export function PinSheet({ say, close }) {
                 <Row icon="shield" color="var(--blue)" label="Changer le code" chevron onClick={() => setStep("cur-change")} />
                 <Row icon="xmark" color="var(--red)" label="Désactiver le code" onClick={() => setStep("cur-off")} />
               </div>
-              <p className="foot">L'appli se verrouille quand tu la quittes plus de 30 secondes.</p>
+              {avail && (
+                <div className="list">
+                  <div className="field sw">
+                    <span>Empreinte digitale</span>
+                    <button
+                      role="switch"
+                      aria-checked={bioOn()}
+                      aria-label="Empreinte digitale"
+                      className={"switch" + (bioOn() ? " on" : "")}
+                      onClick={toggleBio}
+                    />
+                  </div>
+                </div>
+              )}
+              <p className="foot">L'appli se verrouille quand tu la quittes plus de 30 secondes. Avec l'empreinte, le code reste toujours possible.</p>
             </>
           ) : (
             <>
@@ -156,6 +204,7 @@ export function PinSheet({ say, close }) {
                 if (!r.ok) return r.msg;
                 if (step === "cur-off") {
                   clearPin();
+                  setBioOn(false);
                   say("Code désactivé");
                   dismiss();
                 } else setStep("new");
