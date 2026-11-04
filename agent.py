@@ -14,15 +14,17 @@ sur le réseau local (port 8766), par exemple quand le PC est connecté au point
 Wi-Fi du téléphone, au même Wi-Fi, ou au partage de connexion Bluetooth. Les requêtes y
 sont signées (le token ne circule jamais en clair).
 
-Fichiers : le dossier SHARE_DIR (par défaut ~/WakeUp-Pc) est le seul accessible depuis
-le téléphone, dans les deux sens.
+Fichiers et dossiers : le dossier SHARE_DIR (par défaut ~/WakeUp-Pc) est le seul accessible
+depuis le téléphone, dans les deux sens. Pour en partager plusieurs, sépare-les par un
+point-virgule : SHARE_DIR=C:\\Users\\Moi\\Documents;D:\\Photos
 
 Pour "Ouvrir une appli" : crée un fichier apps.json à côté de agent.py, par exemple
     {"YouTube": "https://youtube.com", "Bloc-notes": "notepad.exe"}
 Seules les applis de cette liste peuvent être lancées depuis le téléphone.
 """
 import os, re, sys, json, time, hmac, ctypes, base64, shlex, shutil, socket, hashlib, platform
-import secrets, threading, subprocess, mimetypes, webbrowser
+import csv, struct, zlib, secrets, tempfile, zipfile, ipaddress, threading, subprocess, mimetypes, webbrowser
+import urllib.parse, urllib.request
 from collections import deque
 from urllib.parse import urlparse, parse_qs, quote
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -39,6 +41,9 @@ LAN_PORT = int(os.environ.get("LAN_PORT", "8766"))
 LAN_BIND = os.environ.get("LAN_BIND", "0.0.0.0")
 SHARE_DIR = os.environ.get("SHARE_DIR") or os.path.join(os.path.expanduser("~"), "WakeUp-Pc")
 MAX_UPLOAD = int(os.environ.get("MAX_UPLOAD_MB", "1024")) * 1024 * 1024
+MAX_ZIP = int(os.environ.get("MAX_ZIP_MB", "2048")) * 1024 * 1024   # taille max d'un dossier téléchargé en zip
+MAX_UNZIP = MAX_UPLOAD * 4                                          # taille max d'un zip une fois extrait
+MAX_FILES = 20000
 MAX_FAILS, LOCK_SECONDS = 5, 900
 MAX_BODY = 8192
 IS_WIN = platform.system() == "Windows"
@@ -219,6 +224,7 @@ def act_info(body):
     if at and time.time() > at + 120:   # l'heure est passée : on oublie
         at = state["shutdown_at"] = None
     d["shutdown_at"] = at
+    d["awake_until"] = awake_until()
     d["history"] = list(HISTORY)[::-1][:20]
     return d
 
@@ -308,26 +314,64 @@ def human(n):
         n /= 1024.0
 
 
-def share_root():
-    root = os.path.realpath(SHARE_DIR)
-    os.makedirs(root, exist_ok=True)
-    return root
+_ROOTS = None
 
 
-def safe_path(rel):
-    """Chemin à l'intérieur du dossier de partage, jamais en dehors."""
-    root = share_root()
+def share_roots():
+    """Dossiers partagés : liste de (nom affiché, chemin réel). SHARE_DIR peut en contenir plusieurs, séparés par ;"""
+    global _ROOTS
+    if _ROOTS is None:
+        default = os.path.join(os.path.expanduser("~"), "WakeUp-Pc")
+        roots, used = [], set()
+        for p in [x.strip() for x in SHARE_DIR.split(";") if x.strip()] or [default]:
+            real = os.path.realpath(os.path.expanduser(p))
+            os.makedirs(real, exist_ok=True)
+            base = clean_name(os.path.basename(real.rstrip("\\/")) or "Disque")
+            name, i = base, 2
+            while name.lower() in used:
+                name, i = "%s (%d)" % (base, i), i + 1
+            used.add(name.lower())
+            roots.append((name, real))
+        _ROOTS = roots
+    return _ROOTS
+
+
+def resolve(rel):
+    """(dossier partagé, chemin réel). (None, None) veut dire : la liste des dossiers partagés."""
+    roots = share_roots()
     parts = [p for p in str(rel or "").replace("\\", "/").split("/") if p not in ("", ".")]
     if ".." in parts or any(":" in p for p in parts):
         raise ValueError("chemin interdit")
-    p = os.path.realpath(os.path.join(root, *parts))
+    if len(roots) == 1:
+        root, sub = roots[0][1], parts
+    else:
+        if not parts:
+            return None, None
+        match = [r for n, r in roots if n.lower() == parts[0].lower()]
+        if not match:
+            raise ValueError("chemin interdit")
+        root, sub = match[0], parts[1:]
+    p = os.path.realpath(os.path.join(root, *sub))
     try:
         ok = os.path.commonpath([root, p]) == root
     except ValueError:
         ok = False
     if not ok:
         raise ValueError("chemin interdit")
+    return root, p
+
+
+def safe_path(rel):
+    """Chemin à l'intérieur d'un dossier partagé, jamais en dehors."""
+    root, p = resolve(rel)
+    if p is None:
+        raise ValueError("choisis d'abord un dossier partagé")
     return p
+
+
+def disposition(name):
+    ascii_name = re.sub(r"[^A-Za-z0-9._-]", "_", name)
+    return "attachment; filename=\"%s\"; filename*=UTF-8''%s" % (ascii_name, quote(name))
 
 
 def clean_name(name):
@@ -351,7 +395,19 @@ def unique_path(folder, name):
 
 
 def act_files(body):
-    folder = safe_path(body.get("path", ""))
+    root, folder = resolve(body.get("path", ""))
+    roots = share_roots()
+    if root is None:      # plusieurs dossiers partagés : on affiche la liste de départ
+        entries = []
+        for n, r in roots:
+            try:
+                m = int(os.path.getmtime(r))
+            except OSError:
+                m = 0
+            entries.append({"n": n, "d": True, "s": 0, "m": m})
+        return {"path": "", "virtual": True, "root": " ; ".join(r for _, r in roots),
+                "max_upload": MAX_UPLOAD, "entries": entries, "more": False}
+
     if not os.path.isdir(folder):
         raise ValueError("dossier introuvable")
     entries = []
@@ -369,13 +425,123 @@ def act_files(body):
     except OSError:
         raise ValueError("lecture impossible")
     entries.sort(key=lambda x: (not x["d"], x["n"].lower()))
-    root = share_root()
     rel = os.path.relpath(folder, root).replace("\\", "/")
-    return {"path": "" if rel == "." else rel, "root": root, "max_upload": MAX_UPLOAD,
+    rel = "" if rel == "." else rel
+    if len(roots) > 1:
+        rel = [n for n, r in roots if r == root][0] + ("/" + rel if rel else "")
+    return {"path": rel, "root": root, "max_upload": MAX_UPLOAD,
             "entries": entries[:500], "more": len(entries) > 500}
 
 
+def act_mkdir(body):
+    parent = safe_path(body.get("path", ""))
+    if not os.path.isdir(parent):
+        raise ValueError("dossier introuvable")
+    if not str(body.get("name", "")).strip():
+        raise ValueError("nom vide")
+    name = clean_name(body.get("name"))
+    target = os.path.join(parent, name)
+    if os.path.exists(target):
+        raise ValueError("ce nom existe déjà")
+    os.mkdir(target)
+    note("Dossier créé : " + name[:50])
+    return {"name": name}
+
+
+def make_zip(folder):
+    """Zip temporaire d'un dossier : sans fichiers cachés, sans liens, avec une taille maximale."""
+    files, total = [], 0
+    top = os.path.basename(folder.rstrip("\\/")) or "dossier"
+    for dirpath, dirnames, filenames in os.walk(folder):
+        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+        for f in filenames:
+            full = os.path.join(dirpath, f)
+            if f.startswith(".") or os.path.islink(full):
+                continue
+            try:
+                total += os.path.getsize(full)
+            except OSError:
+                continue
+            if total > MAX_ZIP:
+                raise ValueError("dossier trop gros pour un zip (max %s)" % human(MAX_ZIP))
+            files.append(full)
+            if len(files) > MAX_FILES:
+                raise ValueError("trop de fichiers dans ce dossier (max %d)" % MAX_FILES)
+    if not files:
+        raise ValueError("le dossier est vide")
+    fd, tmp = tempfile.mkstemp(suffix=".zip", prefix="wakeup-")
+    os.close(fd)
+    try:
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED, compresslevel=1) as z:
+            for full in files:
+                try:
+                    z.write(full, os.path.join(top, os.path.relpath(full, folder)))
+                except OSError:
+                    pass    # fichier verrouillé ou disparu : on le saute
+    except Exception:
+        os.remove(tmp)
+        raise
+    return tmp
+
+
+def extract_zip(zip_path, parent, folder_name):
+    """Extrait un zip reçu dans un nouveau dossier. Noms nettoyés, taille et nombre limités.
+    Si le zip contient déjà un seul dossier (ex. Projet/...), on s'en sert comme dossier de destination."""
+    out = None
+    total = count = 0
+    try:
+        with zipfile.ZipFile(zip_path) as z:
+            infos = z.infolist()
+            if len(infos) > MAX_FILES:
+                raise ValueError("trop de fichiers dans le zip (max %d)" % MAX_FILES)
+            items = []
+            for info in infos:
+                parts = [clean_name(p) for p in info.filename.replace("\\", "/").split("/") if p not in ("", ".", "..")]
+                if parts:
+                    items.append((info, parts))
+            firsts = {p[0] for _, p in items}
+            if len(firsts) == 1 and all(len(p) > 1 or i.is_dir() for i, p in items):
+                folder_name = next(iter(firsts))                       # le zip contient déjà son dossier
+                items = [(i, p[1:]) for i, p in items if len(p) > 1]
+
+            out = unique_path(parent, clean_name(folder_name))
+            os.makedirs(out)
+            real_out = os.path.realpath(out)
+            for info, parts in items:
+                dst = os.path.join(out, *parts)
+                if os.path.commonpath([real_out, os.path.realpath(dst)]) != real_out:
+                    continue
+                if info.is_dir():
+                    os.makedirs(dst, exist_ok=True)
+                    continue
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                with z.open(info) as src, open(dst, "wb") as f:
+                    while True:
+                        chunk = src.read(65536)
+                        if not chunk:
+                            break
+                        total += len(chunk)
+                        if total > MAX_UNZIP:
+                            raise ValueError("zip trop gros une fois extrait (max %s)" % human(MAX_UNZIP))
+                        f.write(chunk)
+                count += 1
+    except (zipfile.BadZipFile, NotImplementedError):
+        if out:
+            shutil.rmtree(out, ignore_errors=True)
+        raise ValueError("zip illisible")
+    except RuntimeError:
+        if out:
+            shutil.rmtree(out, ignore_errors=True)
+        raise ValueError("zip protégé par un mot de passe")
+    except Exception:
+        if out:
+            shutil.rmtree(out, ignore_errors=True)
+        raise
+    return os.path.basename(out), count, total
+
+
 PC["files"] = act_files
+PC["mkdir"] = act_mkdir
 
 
 # ---------------------------------------------------------------- signatures (connexion directe)
@@ -432,6 +598,585 @@ def lan_addresses():
     return sorted(ip for ip in ips if not ip.startswith(("127.", "169.254.", "0.")))
 
 
+# ---------------------------------------------------------------- souris, clavier, capture d'écran (Windows)
+
+NOWIN = {"creationflags": 0x08000000} if IS_WIN else {}   # pas de fenêtre noire pour les commandes lancées
+
+
+def need_win():
+    if not IS_WIN:
+        raise ValueError("disponible sur Windows seulement")
+
+
+class MOUSEINPUT(ctypes.Structure):
+    _fields_ = [("dx", ctypes.c_int32), ("dy", ctypes.c_int32), ("data", ctypes.c_uint32),
+                ("flags", ctypes.c_uint32), ("time", ctypes.c_uint32), ("extra", ctypes.c_size_t)]
+
+
+class KEYBDINPUT(ctypes.Structure):
+    _fields_ = [("vk", ctypes.c_uint16), ("scan", ctypes.c_uint16), ("flags", ctypes.c_uint32),
+                ("time", ctypes.c_uint32), ("extra", ctypes.c_size_t)]
+
+
+class _IU(ctypes.Union):
+    _fields_ = [("mi", MOUSEINPUT), ("ki", KEYBDINPUT)]
+
+
+class INPUT(ctypes.Structure):
+    _fields_ = [("type", ctypes.c_uint32), ("u", _IU)]
+
+
+KEYS = {"enter": 0x0D, "backspace": 0x08, "tab": 0x09, "esc": 0x1B, "delete": 0x2E, "space": 0x20,
+        "left": 0x25, "up": 0x26, "right": 0x27, "down": 0x28, "home": 0x24, "end": 0x23,
+        "pageup": 0x21, "pagedown": 0x22, "win": 0x5B, "ctrl": 0x11, "shift": 0x10, "alt": 0x12}
+KEYS.update({"f%d" % i: 0x6F + i for i in range(1, 13)})
+EXTENDED = {0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2E, 0x5B}   # touches "étendues" de Windows
+
+
+def vk_of(name):
+    n = str(name).lower()
+    if n in KEYS:
+        return KEYS[n]
+    if len(n) == 1 and n.isascii() and n.isalnum():
+        return ord(n.upper())
+    raise ValueError("touche inconnue : " + n[:10])
+
+
+def kbd(vk=0, scan=0, flags=0):
+    return INPUT(1, _IU(ki=KEYBDINPUT(vk, scan, flags, 0, 0)))
+
+
+def tap_vk(vk):
+    ext = 0x0001 if vk in EXTENDED else 0
+    return [kbd(vk, 0, ext), kbd(vk, 0, ext | 0x0002)]
+
+
+def send_inputs(items):
+    for i in range(0, len(items), 200):
+        part = items[i:i + 200]
+        arr = (INPUT * len(part))(*part)
+        if ctypes.windll.user32.SendInput(len(part), ctypes.byref(arr), ctypes.sizeof(INPUT)) != len(part):
+            raise ValueError("Windows a refusé la saisie")
+
+
+def act_key(body):
+    need_win()
+    items = []
+    if "text" in body:
+        for ch in str(body["text"])[:500]:
+            if ch == "\n":
+                items += tap_vk(0x0D)
+            elif ch == "\t":
+                items += tap_vk(0x09)
+            elif ch != "\r":
+                raw = ch.encode("utf-16-le")        # une lettre peut valoir 2 unités (emoji)
+                for k in range(0, len(raw), 2):
+                    unit = int.from_bytes(raw[k:k + 2], "little")
+                    items += [kbd(0, unit, 0x0004), kbd(0, unit, 0x0006)]   # UNICODE, puis UNICODE | KEYUP
+    elif "combo" in body:                              # ex. ["ctrl", "c"]
+        vks = [vk_of(k) for k in list(body["combo"])[:4]]
+        if not vks:
+            raise ValueError("combinaison vide")
+        items += [kbd(v, 0, 0x0001 if v in EXTENDED else 0) for v in vks]
+        items += [kbd(v, 0, (0x0001 if v in EXTENDED else 0) | 0x0002) for v in reversed(vks)]
+    elif "key" in body:
+        vk, n = vk_of(body["key"]), max(1, min(20, int(body.get("n", 1))))
+        for _ in range(n):
+            items += tap_vk(vk)
+    else:
+        raise ValueError("rien à saisir")
+    send_inputs(items)
+    return {}
+
+
+MOUSE_BTN = {"left": (0x0002, 0x0004), "right": (0x0008, 0x0010), "middle": (0x0020, 0x0040)}
+
+
+def act_mouse(body):
+    need_win()
+    try:
+        dx, dy, sc = (int(float(body.get(k, 0))) for k in ("dx", "dy", "scroll"))
+    except (TypeError, ValueError):
+        raise ValueError("valeur invalide")
+    u = ctypes.windll.user32
+    if dx or dy:
+        u.mouse_event(0x0001, max(-3000, min(3000, dx)), max(-3000, min(3000, dy)), 0, 0)   # déplacement relatif
+    if sc:
+        u.mouse_event(0x0800, 0, 0, -max(-50, min(50, sc)) * 120, 0)                          # molette (+ = vers le bas)
+    btn = body.get("btn")
+    if btn:
+        if btn not in MOUSE_BTN:
+            raise ValueError("bouton inconnu")
+        down, up = MOUSE_BTN[btn]
+        act = body.get("act", "click")
+        if act == "down":
+            u.mouse_event(down, 0, 0, 0, 0)
+        elif act == "up":
+            u.mouse_event(up, 0, 0, 0, 0)
+        elif act in ("click", "double"):
+            for _ in range(2 if act == "double" else 1):
+                u.mouse_event(down, 0, 0, 0, 0)
+                u.mouse_event(up, 0, 0, 0, 0)
+        else:
+            raise ValueError("action inconnue")
+    return {}
+
+
+class BMIH(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("w", ctypes.c_int32), ("h", ctypes.c_int32), ("planes", ctypes.c_uint16),
+                ("bits", ctypes.c_uint16), ("comp", ctypes.c_uint32), ("img", ctypes.c_uint32), ("xppm", ctypes.c_int32),
+                ("yppm", ctypes.c_int32), ("used", ctypes.c_uint32), ("imp", ctypes.c_uint32)]
+
+
+def png_bytes(rgb, w, h):
+    """Image PNG à partir de pixels RGB (sans aucune bibliothèque, juste zlib)."""
+    stride = w * 3
+    raw = b"".join(b"\x00" + rgb[y * stride:(y + 1) * stride] for y in range(h))
+
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw, 3)) + chunk(b"IEND", b""))
+
+
+def grab_png(max_w):
+    need_win()
+    u, g = ctypes.windll.user32, ctypes.windll.gdi32
+    P, I = ctypes.c_void_p, ctypes.c_int
+    u.GetDC.argtypes, u.GetDC.restype = [P], P
+    u.ReleaseDC.argtypes = [P, P]
+    g.CreateCompatibleDC.argtypes, g.CreateCompatibleDC.restype = [P], P
+    g.CreateCompatibleBitmap.argtypes, g.CreateCompatibleBitmap.restype = [P, I, I], P
+    g.SelectObject.argtypes, g.SelectObject.restype = [P, P], P
+    g.SetStretchBltMode.argtypes = [P, I]
+    g.StretchBlt.argtypes = [P, I, I, I, I, P, I, I, I, I, ctypes.c_uint32]
+    g.GetDIBits.argtypes = [P, P, ctypes.c_uint, ctypes.c_uint, P, P, ctypes.c_uint]
+    g.DeleteObject.argtypes = [P]
+    g.DeleteDC.argtypes = [P]
+    try:
+        u.SetProcessDPIAware()      # sinon Windows ne renvoie qu'une partie de l'écran quand il est agrandi (125 %...)
+    except Exception:
+        pass
+    sw, sh = u.GetSystemMetrics(0), u.GetSystemMetrics(1)
+    if sw <= 0 or sh <= 0:
+        raise ValueError("écran introuvable")
+    tw = min(sw, max_w)
+    th = max(1, round(sh * tw / sw))
+    hs = u.GetDC(None)
+    hm = g.CreateCompatibleDC(hs)
+    hb = g.CreateCompatibleBitmap(hs, tw, th)
+    try:
+        old = g.SelectObject(hm, hb)
+        g.SetStretchBltMode(hm, 4)                                   # HALFTONE : réduction de bonne qualité
+        if not g.StretchBlt(hm, 0, 0, tw, th, hs, 0, 0, sw, sh, 0x40CC0020):   # SRCCOPY | CAPTUREBLT
+            raise ValueError("capture refusée (écran verrouillé ?)")
+        g.SelectObject(hm, old)
+        bmi = BMIH()
+        bmi.size, bmi.w, bmi.h, bmi.planes, bmi.bits = ctypes.sizeof(BMIH), tw, -th, 1, 32   # hauteur < 0 : de haut en bas
+        buf = ctypes.create_string_buffer(tw * th * 4)
+        if g.GetDIBits(hm, hb, 0, th, buf, ctypes.byref(bmi), 0) == 0:
+            raise ValueError("lecture de l'image impossible")
+    finally:
+        g.DeleteObject(hb)
+        g.DeleteDC(hm)
+        u.ReleaseDC(None, hs)
+    bgra = buf.raw
+    rgb = bytearray(tw * th * 3)
+    rgb[0::3], rgb[1::3], rgb[2::3] = bgra[2::4], bgra[1::4], bgra[0::4]      # BGRA -> RGB
+    return png_bytes(bytes(rgb), tw, th)
+
+
+# ---------------------------------------------------------------- veille, programmes, presse-papiers
+
+awake = {"until": None, "stop": None}
+
+
+def awake_until():
+    if awake["until"] and time.time() > awake["until"]:
+        awake["until"] = None
+    return awake["until"]
+
+
+def act_awake(body):
+    need_win()
+    try:
+        m = int(body.get("minutes", 0))
+    except (TypeError, ValueError):
+        m = -1
+    if not 0 <= m <= 720:
+        raise ValueError("durée entre 0 et 720 minutes")
+    if awake["stop"]:
+        awake["stop"].set()
+    if m == 0:
+        awake.update(until=None, stop=None)
+        note("Veille autorisée à nouveau")
+        return {"awake_until": None}
+    stop = threading.Event()
+
+    def hold():     # l'état "éveillé" appartient au thread : il doit rester vivant pendant la durée
+        k = ctypes.windll.kernel32
+        k.SetThreadExecutionState(ctypes.c_uint32(0x80000001))   # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
+        stop.wait(m * 60)
+        k.SetThreadExecutionState(ctypes.c_uint32(0x80000000))   # ES_CONTINUOUS seul : on rend la main
+
+    threading.Thread(target=hold, daemon=True).start()
+    awake.update(until=int(time.time()) + m * 60, stop=stop)
+    note("PC gardé éveillé %d min" % m)
+    return {"awake_until": awake["until"]}
+
+
+# programmes qu'on ne peut pas fermer depuis le téléphone (système, agent, Tailscale)
+PROTECTED = {"system", "system idle process", "registry", "smss.exe", "csrss.exe", "wininit.exe", "winlogon.exe",
+             "services.exe", "lsass.exe", "svchost.exe", "dwm.exe", "fontdrvhost.exe", "explorer.exe", "conhost.exe",
+             "python.exe", "pythonw.exe", "python3", "python", "tailscaled.exe", "tailscale-ipn.exe", "tailscale.exe",
+             "memory compression", "securityhealthservice.exe", "systemd", "init", "sshd"}
+
+
+def act_procs(body):
+    groups = {}
+    if IS_WIN:
+        out = subprocess.run(["tasklist", "/fo", "csv", "/nh"], capture_output=True, timeout=20, **NOWIN).stdout
+        for r in csv.reader(out.decode("utf-8", "replace").splitlines()):
+            if len(r) >= 5:
+                rows = [(r[0], int("".join(c for c in r[4] if c.isdigit()) or 0))]
+                groups_add(groups, rows)
+    else:
+        out = subprocess.run(["ps", "-eo", "rss=,comm="], capture_output=True, timeout=20).stdout.decode("utf-8", "replace")
+        for line in out.splitlines():
+            parts = line.strip().split(None, 1)
+            if len(parts) == 2 and parts[0].isdigit():
+                groups_add(groups, [(parts[1], int(parts[0]))])
+    items = sorted(groups.values(), key=lambda x: -x["m"])[:40]
+    for it in items:
+        it["p"] = it["n"].lower() in PROTECTED
+    return {"procs": items}
+
+
+def groups_add(groups, rows):
+    for name, mem in rows:
+        g = groups.setdefault(name.lower(), {"n": name, "c": 0, "m": 0})
+        g["c"] += 1
+        g["m"] += mem          # en Ko
+
+
+def act_kill(body):
+    name = str(body.get("name", "")).strip()
+    if not re.fullmatch(r"[\w .+()\-]{1,80}", name):
+        raise ValueError("nom invalide")
+    if name.lower() in PROTECTED:
+        raise ValueError("programme protégé")
+    r = subprocess.run(["taskkill", "/F", "/IM", name] if IS_WIN else ["pkill", "-x", name],
+                       capture_output=True, timeout=20, **NOWIN)
+    if r.returncode != 0:
+        raise ValueError("introuvable ou refusé")
+    note("Programme fermé : " + name[:40])
+    return {}
+
+
+def act_clipget(body):
+    if IS_WIN:
+        u, k = ctypes.windll.user32, ctypes.windll.kernel32
+        u.OpenClipboard.argtypes = [ctypes.c_void_p]
+        u.GetClipboardData.argtypes, u.GetClipboardData.restype = [ctypes.c_uint], ctypes.c_void_p
+        k.GlobalLock.argtypes, k.GlobalLock.restype = [ctypes.c_void_p], ctypes.c_void_p
+        k.GlobalUnlock.argtypes = [ctypes.c_void_p]
+        for _ in range(10):
+            if u.OpenClipboard(None):
+                break
+            time.sleep(0.05)
+        else:
+            raise ValueError("presse-papiers occupé, réessaie")
+        try:
+            h = u.GetClipboardData(13)          # CF_UNICODETEXT
+            text = ""
+            if h:
+                p = k.GlobalLock(h)
+                try:
+                    text = ctypes.wstring_at(p) if p else ""
+                finally:
+                    k.GlobalUnlock(h)
+        finally:
+            u.CloseClipboard()
+    else:
+        tool = ["wl-paste", "--no-newline"] if shutil.which("wl-paste") else ["xclip", "-selection", "clipboard", "-o"]
+        if not shutil.which(tool[0]):
+            raise ValueError("installe xclip ou wl-clipboard sur le PC")
+        text = subprocess.run(tool, capture_output=True, timeout=10).stdout.decode("utf-8", "replace")
+    note("Presse-papiers du PC lu")
+    return {"text": text[:5000], "truncated": len(text) > 5000}
+
+
+# ---------------------------------------------------------------- téléchargement à distance
+
+ALLOW_LAN_DOWNLOAD = os.environ.get("ALLOW_LAN_DOWNLOAD", "").lower() in ("1", "true", "oui", "yes")
+MAX_DOWNLOAD = MAX_UPLOAD * 4
+DL = {}
+DL_LOCK = threading.Lock()
+
+
+def check_url(url):
+    u = urlparse(url)
+    if u.scheme not in ("http", "https") or not u.hostname or len(url) > 2000 \
+            or any(c.isspace() or ord(c) < 32 for c in url):
+        raise ValueError("adresse invalide (http ou https)")
+    if ALLOW_LAN_DOWNLOAD:
+        return
+    try:
+        infos = socket.getaddrinfo(u.hostname, u.port or (443 if u.scheme == "https" else 80), proto=socket.IPPROTO_TCP)
+    except OSError:
+        raise ValueError("adresse introuvable")
+    for info in infos:
+        if not ipaddress.ip_address(info[4][0].split("%")[0]).is_global:
+            raise ValueError("adresse du réseau local interdite (ALLOW_LAN_DOWNLOAD=1 pour l'autoriser)")
+
+
+class CheckedRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        check_url(newurl)          # une redirection ne doit pas mener vers le réseau local
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+OPENER = urllib.request.build_opener(CheckedRedirect())
+
+
+def guess_name(url, headers):
+    cd = headers.get("Content-Disposition") or ""
+    m = re.search(r"filename\*=UTF-8''([^;]+)", cd, re.I) or re.search(r'filename="?([^";]+)"?', cd, re.I)
+    if m:
+        return urllib.parse.unquote(m.group(1))
+    return urllib.parse.unquote(os.path.basename(urlparse(url).path)) or "telechargement"
+
+
+def dl_worker(job, url, folder, forced):
+    tmp = os.path.join(folder, ".dl-%s.part" % job["id"])
+    try:
+        with OPENER.open(urllib.request.Request(url, headers={"User-Agent": "WakeUp-Pc"}), timeout=30) as r:
+            total = int(r.headers.get("Content-Length") or 0)
+            if total > MAX_DOWNLOAD:
+                raise ValueError("fichier trop gros (max %s)" % human(MAX_DOWNLOAD))
+            if shutil.disk_usage(folder).free < total + 100 * 1024 * 1024:
+                raise ValueError("pas assez de place sur le PC")
+            name = clean_name(forced or guess_name(url, r.headers))
+            job.update(name=name, total=total)
+            got = 0
+            with open(tmp, "wb") as f:
+                while True:
+                    if job["cancel"]:
+                        raise ValueError("annulé")
+                    chunk = r.read(65536)
+                    if not chunk:
+                        break
+                    got += len(chunk)
+                    if got > MAX_DOWNLOAD:
+                        raise ValueError("fichier trop gros (max %s)" % human(MAX_DOWNLOAD))
+                    f.write(chunk)
+                    job["got"] = got
+        final = unique_path(folder, name)
+        os.replace(tmp, final)
+        job.update(state="ok", name=os.path.basename(final), total=got)
+        note("Téléchargé : %s (%s)" % (job["name"][:50], human(got)))
+    except Exception as e:
+        job.update(state="err", error=str(e) if isinstance(e, ValueError) else "échec du téléchargement")
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        note("Téléchargement échoué : " + job["error"][:60], bad=True)
+
+
+def act_dl_start(body):
+    url = str(body.get("url", "")).strip()
+    check_url(url)
+    root, folder = resolve(body.get("dir", ""))
+    if folder is None:
+        folder = share_roots()[0][1]          # plusieurs dossiers partagés : le premier par défaut
+    if not os.path.isdir(folder):
+        raise ValueError("dossier introuvable")
+    with DL_LOCK:
+        if sum(1 for j in DL.values() if j["state"] == "run") >= 2:
+            raise ValueError("2 téléchargements à la fois, pas plus")
+        job = {"id": secrets.token_hex(4), "name": clean_name(str(body.get("name") or "") or guess_name(url, {})),
+               "got": 0, "total": 0, "state": "run", "error": "", "cancel": False}
+        DL[job["id"]] = job
+        while len(DL) > 20:
+            old = next((k for k, j in DL.items() if j["state"] != "run"), None)
+            if old is None:
+                break
+            del DL[old]
+    note("Téléchargement lancé depuis " + urlparse(url).netloc[:40])
+    threading.Thread(target=dl_worker, args=(job, url, folder, str(body.get("name") or "").strip()), daemon=True).start()
+    return {"id": job["id"]}
+
+
+def act_dl_status(body):
+    keys = ("id", "name", "got", "total", "state", "error")
+    with DL_LOCK:
+        return {"jobs": [{k: j[k] for k in keys} for j in list(DL.values())[::-1][:10]]}
+
+
+def act_dl_cancel(body):
+    job = DL.get(str(body.get("id", "")))
+    if job:
+        job["cancel"] = True
+    return {}
+
+
+# ---------------------------------------------------------------- raccourcis personnalisés
+
+def load_shortcuts():
+    try:
+        with open(os.path.join(HERE, "shortcuts.json"), encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        log("shortcuts.json illisible: " + repr(e))
+        return {}
+
+
+def act_shortcuts(body):
+    out = []
+    for name, spec in load_shortcuts().items():
+        out.append({"n": str(name), "confirm": bool(isinstance(spec, dict) and spec.get("confirm"))})
+    return {"shortcuts": out}
+
+
+def oem_encoding():
+    try:
+        return "cp%d" % ctypes.windll.kernel32.GetOEMCP()
+    except Exception:
+        return "utf-8"
+
+
+def act_run(body):
+    name = str(body.get("name", ""))
+    shortcuts = load_shortcuts()
+    if name not in shortcuts:
+        raise ValueError("raccourci non autorisé")
+    spec = shortcuts[name]
+    opts = spec if isinstance(spec, dict) else {}
+    cmd = [spec] if isinstance(spec, str) else spec.get("cmd") if isinstance(spec, dict) else None
+    if not cmd or not all(isinstance(c, str) for c in cmd):
+        raise ValueError("raccourci mal écrit dans shortcuts.json")
+    if not shutil.which(cmd[0]) and not os.path.exists(cmd[0]):
+        raise ValueError("programme introuvable : " + cmd[0][:40])
+    cwd = os.path.dirname(cmd[0]) if os.path.isfile(cmd[0]) else None
+    note("Raccourci : " + name[:40])
+    if opts.get("output"):
+        try:
+            r = subprocess.run(cmd, capture_output=True, timeout=min(int(opts.get("timeout", 30)), 120), cwd=cwd, **NOWIN)
+        except subprocess.TimeoutExpired:
+            raise ValueError("le raccourci met trop de temps")
+        text = (r.stdout + r.stderr).decode(oem_encoding() if IS_WIN else "utf-8", "replace")
+        return {"output": text[:4000], "code": r.returncode}
+    subprocess.Popen(cmd, cwd=cwd)
+    return {}
+
+
+# ---------------------------------------------------------------- réveil programmé (sur le relais)
+
+SCHED_FILE = os.path.join(HERE, "schedule.json")
+SCHED_LOCK = threading.Lock()
+
+
+def sched_load():
+    try:
+        with open(SCHED_FILE, encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def sched_save(items):
+    tmp = SCHED_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(items, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, SCHED_FILE)
+
+
+def act_sched_list(body):
+    with SCHED_LOCK:
+        items = sched_load()
+    return {"items": items, "now": time.strftime("%H:%M"), "tz": time.strftime("%Z")}
+
+
+def act_sched_add(body):
+    m = re.fullmatch(r"(\d{2}):(\d{2})", str(body.get("time", "")))
+    if not m or int(m.group(1)) > 23 or int(m.group(2)) > 59:
+        raise ValueError("heure invalide (HH:MM)")
+    days = sorted({int(d) for d in body.get("days", []) if str(d).isdigit() and 0 <= int(d) <= 6})
+    with SCHED_LOCK:
+        items = sched_load()
+        if len(items) >= 20:
+            raise ValueError("20 réveils au maximum")
+        item = {"id": secrets.token_hex(3), "time": m.group(0), "days": days, "on": True,
+                "label": str(body.get("label", ""))[:30]}
+        items.append(item)
+        sched_save(items)
+    log("réveil programmé ajouté : %s %s" % (item["time"], days or "une fois"))
+    return {"item": item}
+
+
+def act_sched_del(body):
+    with SCHED_LOCK:
+        sched_save([i for i in sched_load() if i.get("id") != body.get("id")])
+    return {}
+
+
+def act_sched_toggle(body):
+    with SCHED_LOCK:
+        items = sched_load()
+        for i in items:
+            if i.get("id") == body.get("id"):
+                i["on"] = bool(body.get("on"))
+        sched_save(items)
+    return {}
+
+
+def act_wake(body):
+    log("wake")
+    wake(WOL_MAC)
+    return {}
+
+
+def sched_loop():
+    """Toutes les 15 secondes : si une heure programmée arrive, on envoie le signal de réveil."""
+    last = None
+    while True:
+        try:
+            now = time.localtime()
+            key = (now.tm_yday, now.tm_hour, now.tm_min)
+            if key != last:
+                last = key
+                hhmm = "%02d:%02d" % (now.tm_hour, now.tm_min)
+                with SCHED_LOCK:
+                    items, changed = sched_load(), False
+                    for it in items:
+                        if it.get("on") and it.get("time") == hhmm and (not it.get("days") or now.tm_wday in it["days"]):
+                            log("réveil programmé " + hhmm)
+                            wake(WOL_MAC)
+                            if not it.get("days"):          # réveil unique : il s'éteint après usage
+                                it["on"], changed = False, True
+                    if changed:
+                        sched_save(items)
+        except Exception as e:
+            log("réveil programmé : " + repr(e))
+        time.sleep(15)
+
+
+PC.update({
+    "key": act_key, "mouse": act_mouse, "awake": act_awake, "procs": act_procs, "kill": act_kill,
+    "clipget": act_clipget, "dl_start": act_dl_start, "dl_status": act_dl_status, "dl_cancel": act_dl_cancel,
+    "shortcuts": act_shortcuts, "run": act_run,
+})
+RELAY = {"wake": act_wake, "schedule_list": act_sched_list, "schedule_add": act_sched_add,
+         "schedule_del": act_sched_del, "schedule_toggle": act_sched_toggle}
+QUIET = {"info", "apps", "files", "mouse", "key", "procs", "dl_status", "shortcuts", "schedule_list", "clipget"}
+
+
 # ---------------------------------------------------------------- Wake-on-LAN (relais)
 
 def wake(mac):
@@ -440,7 +1185,10 @@ def wake(mac):
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         for _ in range(3):
-            s.sendto(packet, ("255.255.255.255", 9))
+            try:
+                s.sendto(packet, ("255.255.255.255", 9))
+            except OSError as e:
+                log("envoi du signal impossible : " + repr(e))
             time.sleep(0.2)
 
 
@@ -517,6 +1265,11 @@ class H(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/time":     # sert à caler l'horloge du téléphone et à reconnaître l'agent
             return self._send(200, {"t": int(time.time() * 1000), "app": "wakeup-pc", "mode": MODE})
+        if path == "/shot" and MODE == "pc":
+            denied = self._auth("GET")
+            if denied:
+                return self._send(*denied)
+            return self._shot(parse_qs(urlparse(self.path).query))
         if path == "/dl" and MODE == "pc":
             denied = self._auth("GET", is_download=True)
             if denied:
@@ -524,9 +1277,35 @@ class H(BaseHTTPRequestHandler):
             return self._download(parse_qs(urlparse(self.path).query))
         self._send(404, {"error": "introuvable"})
 
+    def _shot(self, q):
+        try:
+            w = max(320, min(2560, int((q.get("w") or ["1280"])[0])))
+        except ValueError:
+            w = 1280
+        try:
+            png = grab_png(w)
+        except ValueError as e:
+            return self._send(400, {"error": str(e)})
+        except Exception as e:
+            log("capture impossible: " + repr(e))
+            return self._send(500, {"error": "capture impossible"})
+        save = (q.get("save") or [""])[0] == "1"
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(png)))
+        self.send_header("Cache-Control", "no-store")
+        if save:
+            self.send_header("Content-Disposition", disposition("capture-%s.png" % time.strftime("%Y%m%d-%H%M%S")))
+        self.end_headers()
+        self.wfile.write(png)
+        if (q.get("live") or [""])[0] != "1":      # l'affichage en direct ne remplit pas l'historique
+            note("Capture d'écran" + (" enregistrée" if save else ""))
+
     def _download(self, q):
         try:
             p = safe_path((q.get("path") or [""])[0])
+            if os.path.isdir(p):
+                return self._download_zip(p)
             if not os.path.isfile(p):
                 raise ValueError("fichier introuvable")
         except ValueError as e:
@@ -555,8 +1334,7 @@ class H(BaseHTTPRequestHandler):
         self.send_header("Accept-Ranges", "bytes")
         if code == 206:
             self.send_header("Content-Range", "bytes %d-%d/%d" % (start, end, size))
-        ascii_name = re.sub(r"[^A-Za-z0-9._-]", "_", name)
-        self.send_header("Content-Disposition", "attachment; filename=\"%s\"; filename*=UTF-8''%s" % (ascii_name, quote(name)))
+        self.send_header("Content-Disposition", disposition(name))
         self.end_headers()
         if start == 0:
             note("Fichier envoyé : %s (%s)" % (name[:50], human(size)))
@@ -573,6 +1351,37 @@ class H(BaseHTTPRequestHandler):
         except OSError:
             pass   # le téléphone a coupé : rien à faire
 
+    def _download_zip(self, folder):
+        try:
+            tmp = make_zip(folder)
+        except ValueError as e:
+            return self._send(400, {"error": str(e)})
+        except Exception as e:
+            log("zip impossible: " + repr(e))
+            return self._send(500, {"error": "création du zip impossible"})
+        try:
+            size = os.path.getsize(tmp)
+            name = (os.path.basename(folder.rstrip("\\/")) or "dossier") + ".zip"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Length", str(size))
+            self.send_header("Content-Disposition", disposition(name))
+            self.end_headers()
+            note("Dossier envoyé : %s (%s)" % (name[:50], human(size)))
+            with open(tmp, "rb") as f:
+                while True:
+                    chunk = f.read(65536)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+        except OSError:
+            pass
+        finally:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
     def do_PUT(self):
         if not self._origin_ok():
             return
@@ -584,6 +1393,7 @@ class H(BaseHTTPRequestHandler):
             return self._send(*denied)
 
         q = parse_qs(u.query)
+        want_zip = (q.get("unzip") or [""])[0] == "1"   # un dossier envoyé en .zip : on l'extrait
         try:
             size = int(self.headers.get("Content-Length") or -1)
         except ValueError:
@@ -592,16 +1402,24 @@ class H(BaseHTTPRequestHandler):
             return self._send(400, {"error": "fichier vide ou taille manquante"})
         if size > MAX_UPLOAD:
             return self._send(413, {"error": "fichier trop gros (max %s)" % human(MAX_UPLOAD)})
+        name = clean_name((q.get("name") or ["fichier"])[0])
         try:
             folder = safe_path((q.get("dir") or [""])[0])
             if not os.path.isdir(folder):
                 raise ValueError("dossier introuvable")
+            if want_zip and not name.lower().endswith(".zip"):
+                raise ValueError("ce n'est pas un fichier .zip")
             if shutil.disk_usage(folder).free < size + 100 * 1024 * 1024:
                 raise ValueError("pas assez de place sur le PC")
         except ValueError as e:
             return self._send(400, {"error": str(e)})
 
-        name = clean_name((q.get("name") or ["fichier"])[0])
+        def drop(path):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
         tmp = os.path.join(folder, ".upload-%s.part" % secrets.token_hex(6))
         try:
             self.connection.settimeout(60)
@@ -613,15 +1431,32 @@ class H(BaseHTTPRequestHandler):
                         raise OSError("connexion interrompue")
                     f.write(chunk)
                     left -= len(chunk)
-            final = unique_path(folder, name)
-            os.replace(tmp, final)
         except Exception as e:
             log("réception interrompue: " + repr(e))
-            try:
-                os.remove(tmp)
-            except OSError:
-                pass
+            drop(tmp)
             return self._send(500, {"error": "réception interrompue"})
+
+        if want_zip:
+            try:
+                got, count, total = extract_zip(tmp, folder, name[:-4] or "dossier")
+            except ValueError as e:
+                drop(tmp)
+                return self._send(400, {"error": str(e)})
+            except Exception as e:
+                log("extraction impossible: " + repr(e))
+                drop(tmp)
+                return self._send(500, {"error": "extraction impossible"})
+            drop(tmp)
+            note("Dossier reçu : %s (%d fichiers)" % (got[:50], count))
+            return self._send(200, {"ok": True, "name": got, "count": count, "size": total})
+
+        try:
+            final = unique_path(folder, name)
+            os.replace(tmp, final)
+        except OSError as e:
+            log("enregistrement impossible: " + repr(e))
+            drop(tmp)
+            return self._send(500, {"error": "enregistrement impossible"})
         got = os.path.basename(final)
         note("Fichier reçu : %s (%s)" % (got[:50], human(size)))
         self._send(200, {"ok": True, "name": got, "size": size})
@@ -652,17 +1487,10 @@ class H(BaseHTTPRequestHandler):
         if action == "ping":
             return self._send(200, {"ok": True, "mode": MODE})
 
-        if MODE == "relay":
-            if action != "wake":
-                return self._send(400, {"error": "action inconnue"})
-            log("wake")
-            wake(WOL_MAC)
-            return self._send(200, {"ok": True, "action": "wake"})
-
-        fn = PC.get(action)
+        fn = (RELAY if MODE == "relay" else PC).get(action)
         if not fn:
             return self._send(400, {"error": "action inconnue"})
-        if action not in ("info", "apps", "files"):
+        if action not in QUIET:
             log("action: " + action)
         try:
             result = fn(body) or {}
@@ -690,8 +1518,12 @@ if __name__ == "__main__":
         sys.exit("WOL_MAC requis en mode relay")
 
     log("Agent %s sur %s:%d" % (MODE, BIND, PORT))
+    if MODE == "relay":
+        threading.Thread(target=sched_loop, daemon=True).start()
+        log("Réveils programmés : actifs (fichier schedule.json)")
     if MODE == "pc":
-        log("Dossier de partage : " + share_root())
+        for n, r in share_roots():
+            log("Dossier partagé : " + r)
     if LAN:
         try:
             lan = ThreadingHTTPServer((LAN_BIND, LAN_PORT), HL)

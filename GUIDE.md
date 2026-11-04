@@ -143,14 +143,38 @@ Marche à suivre :
 
 Sur ce chemin, le token ne circule jamais (chaque requête est signée), mais le contenu des fichiers n'est pas chiffré : utilise-le sur ton propre réseau protégé par mot de passe, pas sur un Wi-Fi public.
 
-## Transférer des fichiers
+## Transférer des fichiers et des dossiers
 
-L'écran **Fichiers** donne accès au dossier de partage du PC (par défaut `WakeUp-Pc` dans ton dossier utilisateur, modifiable avec `set SHARE_DIR=D:\\Partage`). Rien d'autre sur le PC n'est visible.
+L'écran **Fichiers et dossiers** donne accès aux dossiers de partage du PC. Par défaut, c'est `WakeUp-Pc` dans ton dossier utilisateur. Pour en choisir d'autres, ajoute avant `python agent.py` :
 
-- **PC vers téléphone** : mets le fichier dans le dossier de partage, ouvre Fichiers et appuie dessus. Le navigateur du téléphone le télécharge dans Téléchargements.
-- **Téléphone vers PC** : Fichiers, **Envoyer vers le PC**, choisis un ou plusieurs fichiers. Un fichier du même nom n'est jamais écrasé (le nouveau devient `nom (1)`).
-- La taille maximale est de 1 Go par fichier (`set MAX_UPLOAD_MB=4096` pour changer).
+```
+set SHARE_DIR=C:\\Users\\Bryan\\Documents;D:\\Photos
+```
+
+Plusieurs dossiers se séparent par un point-virgule, et l'appli affiche alors la liste de départ. Rien d'autre sur le PC n'est visible.
+
+- **Télécharger un fichier** : appuie dessus. Le navigateur du téléphone le télécharge dans Téléchargements.
+- **Télécharger un dossier** : ouvre-le et appuie sur « Télécharger ce dossier (.zip) ». Le PC le compresse (2 Go maximum, `MAX_ZIP_MB` pour changer).
+- **Envoyer des fichiers** : choisis-en un ou plusieurs, ils arrivent dans le dossier ouvert (1 Go maximum par fichier, `MAX_UPLOAD_MB` pour changer).
+- **Envoyer un dossier** : compresse-le en .zip sur le téléphone, puis « Envoyer un dossier (.zip) ». Le PC le décompresse tout seul dans un nouveau dossier.
+- **Nouveau dossier** : crée un dossier sur le PC, là où tu te trouves.
+- Un fichier ou un dossier du même nom n'est jamais écrasé : le nouveau devient `nom (1)`.
 - Ça marche par Tailscale et en connexion directe, donc avec ou sans internet.
+
+## Contrôler le PC comme avec une souris
+
+- **Souris et clavier** : un doigt déplace le curseur, un tap clique, un tap à deux doigts fait un clic droit, deux doigts qui glissent font défiler. Le champ de texte écrit sur le PC en direct, avec les touches spéciales et des raccourcis (Copier, Coller, Alt+Tab…). Windows seulement.
+- **Capture d'écran** : l'écran du PC dans l'appli, avec affichage en direct, trois qualités et enregistrement. Windows seulement.
+- **Presse-papiers** : du téléphone vers le PC (« Copier sur le PC », puis Ctrl+V) et du PC vers le téléphone (« Lire le presse-papiers du PC »).
+
+## Gérer le PC
+
+- **Programmes en cours** : appuie deux fois sur un programme pour le fermer. Les programmes du système, l'agent et Tailscale sont protégés.
+- **Raccourcis** : un fichier `shortcuts.json` à côté de `agent.py` liste les commandes que tu autorises (voir `shortcuts.example.json`). Chaque raccourci peut afficher son résultat (`"output": true`) ou demander un deuxième appui (`"confirm": true`).
+- **Télécharger sur le PC** (dans « Envoyer au PC ») : le PC télécharge un lien dans son dossier partagé. Les liens vers le réseau local sont refusés, sauf avec `set ALLOW_LAN_DOWNLOAD=1`.
+- **Minuteries** : éteindre dans…, et **garder le PC éveillé** de 30 minutes à 8 heures.
+- **Réveil programmé** : le relais allume le PC à l'heure choisie, chaque jour ou une seule fois (fichier `schedule.json` sur le relais, qui doit rester allumé).
+- **Empreinte digitale** : dans Réglages, Code PIN, si le téléphone en a une. Le code reste toujours possible.
 
 ## Obtenir l'APK
 

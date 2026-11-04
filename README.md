@@ -124,10 +124,15 @@ Il faut aussi préparer le PC pour qu'il accepte d'être réveillé :
 3. Appuie sur le bouton de réglages en haut à droite et remplis les adresses et les tokens du PC et du relais. Si tu ne sais pas où les trouver, regarde la partie Où trouver le token et l'adresse dans le `GUIDE.md`.
 4. Enregistre. Si tout va bien, la ligne du haut affiche Ordinateur en ligne.
 
-## Nouveautés de la version 1.2
+## Nouveautés des versions 1.2 à 1.4
 
 - **Connexion directe, sans internet** : le téléphone parle au PC par le point d'accès Wi-Fi du téléphone, le même Wi-Fi, le partage de connexion Bluetooth ou USB. On lance l'agent avec `LAN=1` et on met son adresse locale dans la ligne « Direct » des réglages. Les requêtes sont signées, le token ne circule jamais.
-- **Fichiers dans les deux sens** : écran « Fichiers » pour envoyer un fichier du téléphone vers le PC, ou télécharger un fichier du PC. Seul le dossier de partage (`~/WakeUp-Pc`, ou `SHARE_DIR`) est accessible.
+- **Fichiers et dossiers dans les deux sens** : écran « Fichiers et dossiers » pour envoyer des fichiers du téléphone vers le PC, télécharger un fichier ou un dossier entier (en .zip), envoyer un dossier (compressé en .zip, le PC le décompresse tout seul) et créer des dossiers. Seuls les dossiers partagés sont accessibles : `~/WakeUp-Pc` par défaut, ou ceux de `SHARE_DIR` (plusieurs possibles, séparés par `;`).
+- **Souris et clavier** : le téléphone devient pavé tactile (déplacer, taper, deux doigts pour défiler et clic droit) et clavier avec raccourcis.
+- **Capture d'écran** du PC, avec affichage en direct, trois qualités et enregistrement.
+- **Presse-papiers dans les deux sens**, **programmes en cours** (fermer un programme), **raccourcis** personnalisés (`shortcuts.json`, exemple dans `shortcuts.example.json`) et **téléchargement à distance** d'un lien sur le PC.
+- **Garder le PC éveillé** et **réveil programmé** (le relais allume le PC à l'heure choisie, fichier `schedule.json`).
+- **Empreinte digitale** pour déverrouiller l'appli, en plus du code PIN.
 - **APK construit par GitHub** : voir « Obtenir l'APK » plus bas.
 - Le guide complet est lisible dans l'appli (bouton livre), même sans connexion, et contient le code de `agent.py`.
 

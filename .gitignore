@@ -7,3 +7,5 @@ playstore
 *.aab
 apps.json
 start-wakeup.bat
+shortcuts.json
+schedule.json

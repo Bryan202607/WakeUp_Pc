@@ -1,0 +1,5 @@
+{
+  "Mon adresse IP": {"cmd": ["ipconfig"], "output": true},
+  "Vider la corbeille": {"cmd": ["powershell", "-NoProfile", "-Command", "Clear-RecycleBin -Force"], "confirm": true},
+  "Sauvegarde": "C:\\Scripts\\sauvegarde.bat"
+}
