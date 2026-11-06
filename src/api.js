@@ -47,6 +47,11 @@ export const openExternal = (url) => (isNative() ? Browser.open({ url }) : windo
 const enc = (s) => encodeURIComponent(s).replace(/[!'()*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase());
 const hex = (buf) => Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
 const offsets = {}; // écart d'horloge PC / téléphone, par adresse
+const keys = new Map(); // clé de signature déjà préparée, par token (on ne la recalcule pas à chaque mouvement de souris)
+const hmacKey = (token) => {
+  if (!keys.has(token)) keys.set(token, crypto.subtle.importKey("raw", new TextEncoder().encode(token), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]));
+  return keys.get(token);
+};
 
 // fetch avec délai maximum : une adresse injoignable ne bloque pas l'appli
 async function tfetch(url, opts, ms) {
@@ -77,7 +82,7 @@ export async function signedUrl(base, token, method, path, params = {}, force = 
     .join("&");
   const nonce = hex(crypto.getRandomValues(new Uint8Array(8)));
   const target = path + "?" + (q ? q + "&" : "") + "t=" + (Date.now() + off) + "&n=" + nonce;
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(token), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const key = await hmacKey(token);
   const sig = hex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(method + "." + target)));
   return b + target + "&s=" + sig;
 }
@@ -93,6 +98,7 @@ const demo = {
   on: true,
   at: null,
   awake: null,
+  locked: false,
   clip: "Texte copié sur le PC de démonstration",
   sched: [{ id: "a1b2c3", time: "07:00", days: [0, 1, 2, 3, 4], on: true, label: "" }],
   dl: [],
@@ -161,8 +167,19 @@ async function demoCall(token, action, body = {}) {
       setTimeout(() => (demo.on = true), 6500);
       break;
     case "lock":
+      demo.locked = true;
+      rec(DEMO_TEXT[action]);
+      break;
     case "logout":
       rec(DEMO_TEXT[action]);
+      break;
+    case "ping":
+      return { ok: true, locked: demo.locked };
+    case "unlock":
+      if (!demo.locked) throw new Error("le PC n'est pas verrouillé");
+      if (body.code !== "1234") throw new Error("code de déverrouillage incorrect (démo : 1234)");
+      demo.locked = false;
+      rec("PC déverrouillé à distance");
       break;
     case "screenoff":
       rec("Écran éteint");
@@ -252,6 +269,8 @@ async function demoCall(token, action, body = {}) {
     case "dl_cancel":
       demo.dl.forEach((j) => j.id === body.id && j.state === "run" && ((j.state = "err"), (j.error = "annulé")));
       break;
+    case "streaminfo":
+      return { ok: true, fps: 24, w: 640, kb: 14 };
     case "mouse":
     case "key":
       return { ok: true };
@@ -291,6 +310,12 @@ export async function shotUrl(base, token, params = {}) {
   return signedUrl(base, token, "GET", "/shot", params);
 }
 
+// Adresse du flux vidéo de l'écran (signée, valable une seule fois)
+export async function streamUrl(base, token, params = {}) {
+  if (base === "demo") return shotUrl("demo", token);
+  return signedUrl(base, token, "GET", "/stream", params);
+}
+
 // ---------------------------------------------------------------------------
 // Appels au PC ou au relais
 // ---------------------------------------------------------------------------
@@ -305,7 +330,9 @@ export async function call(base, token, action, body) {
     const headers = {};
     if (!signed) headers["X-Token"] = token;
     if (body) headers["Content-Type"] = "application/json";
-    return tfetch(url, { method: "POST", headers, body: body ? JSON.stringify(body) : undefined }, 15000);
+    // un ping doit répondre vite, sinon le statut reste « Vérification… » ; le déverrouillage prend une dizaine de secondes
+    const ms = action === "ping" ? 4000 : action === "unlock" ? 45000 : 10000;
+    return tfetch(url, { method: "POST", headers, body: body ? JSON.stringify(body) : undefined }, ms);
   };
 
   let r = await send(false);
@@ -353,3 +380,106 @@ export async function upload(base, token, file, dir, onProgress, opts = {}) {
 
 // Lien de téléchargement signé, valable quelques minutes, pour un seul fichier
 export const downloadUrl = (base, token, path) => signedUrl(base, token, "GET", "/dl", { path });
+
+// ---------------------------------------------------------------------------
+// Connexion directe : chercher le PC sur le réseau et diagnostiquer
+// ---------------------------------------------------------------------------
+async function quickJson(url, ms) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), ms);
+  try {
+    const r = await fetch(url, { signal: ctl.signal, cache: "no-store" });
+    return await r.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Y a-t-il un agent WakeUp-Pc à cette adresse ?
+export async function probeLan(host, port = 8766, ms = 700) {
+  try {
+    const j = await quickJson("http://" + host + ":" + port + "/time", ms);
+    return j && j.app === "wakeup-pc" ? { url: "http://" + host + ":" + port, mode: j.mode } : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Réseaux les plus courants : point d'accès Android (43), point d'accès Windows (137), box (0, 1, 2...)
+const COMMON = ["192.168.43", "192.168.137", "192.168.0", "192.168.1", "192.168.2", "192.168.100", "192.168.8", "10.0.0", "10.0.1", "172.20.10"];
+
+export async function scanLan(onProgress, hint) {
+  if (!isNative()) return [];
+  const prefixes = [];
+  const m = /^(?:https?:\/\/)?(\d+\.\d+\.\d+)\.\d+/.exec(hint || "");
+  if (m) prefixes.push(m[1]); // on commence par le réseau de la dernière adresse connue
+  for (const p of COMMON) if (!prefixes.includes(p)) prefixes.push(p);
+
+  for (const prefix of prefixes) {
+    if (onProgress) onProgress(prefix + ".x");
+    const hosts = Array.from({ length: 254 }, (_, i) => prefix + "." + (i + 1));
+    const found = [];
+    let next = 0;
+    const worker = async () => {
+      while (next < hosts.length) {
+        const r = await probeLan(hosts[next++]);
+        if (r) found.push(r);
+      }
+    };
+    await Promise.all(Array.from({ length: 48 }, worker));
+    if (found.length) return found; // on s'arrête au premier réseau où quelque chose répond
+  }
+  return [];
+}
+
+// Diagnostic pas à pas : renvoie une liste de { ok, text }
+export async function testDirect(url, token) {
+  if (!isNative()) {
+    return [{ ok: false, text: "Cette page web ne peut pas joindre une adresse locale. Installe l'appli Android (APK) pour utiliser la connexion directe." }];
+  }
+  const base = normLan(url);
+  if (!base) return [{ ok: false, text: "Aucune adresse « Direct » dans les réglages." }];
+
+  const steps = [];
+  const t0 = Date.now();
+  let j;
+  try {
+    j = await quickJson(base + "/time", 4000);
+  } catch (e) {
+    return [
+      {
+        ok: false,
+        text:
+          "Aucune réponse de " + base + ". Vérifie dans l'ordre : le PC et le téléphone sont sur le même réseau ; l'agent est lancé avec LAN=1 ; le pare-feu Windows laisse passer le port (commande dans le guide) ; les données mobiles sont coupées si le Wi-Fi n'a pas internet.",
+      },
+    ];
+  }
+  if (!j || j.app !== "wakeup-pc") {
+    return [{ ok: false, text: "Quelque chose répond à cette adresse, mais ce n'est pas l'agent WakeUp-Pc. Mauvaise adresse ou mauvais port ?" }];
+  }
+  steps.push({ ok: true, text: "L'agent répond (" + (j.mode === "relay" ? "relais" : "PC") + ", " + (Date.now() - t0) + " ms)." });
+  if (j.origin_ok === false) {
+    steps.push({ ok: false, text: "L'agent refuse cette appli : ajoute https://localhost dans ALLOWED_ORIGIN (séparé par une virgule) et relance l'agent." });
+    return steps;
+  }
+  steps.push({ ok: true, text: "L'agent accepte cette appli." });
+  if (!token) {
+    steps.push({ ok: false, text: "Aucun token dans les réglages." });
+    return steps;
+  }
+  try {
+    await call(base, token, "ping");
+    steps.push({ ok: true, text: "Connexion signée acceptée : tout fonctionne." });
+  } catch (e) {
+    steps.push({
+      ok: false,
+      text:
+        e.code === 401
+          ? "Token refusé : il doit être identique à celui de l'agent."
+          : e.code === 429
+          ? "L'agent est bloqué quelques minutes après trop d'essais. Attends, ou relance-le."
+          : "Échec : " + e.message,
+    });
+  }
+  return steps;
+}

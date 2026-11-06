@@ -20,7 +20,7 @@ function Field({ label, value, onChange, placeholder, type = "text" }) {
   );
 }
 
-export default function Settings({ cfg, setCfg, close, openPin, openGuide }) {
+export default function Settings({ cfg, setCfg, close, openPin, openGuide, openDirect }) {
   const persist = (next) => {
     setCfg(next);
     save(next);
@@ -49,6 +49,11 @@ export default function Settings({ cfg, setCfg, close, openPin, openGuide }) {
             <Field label="Direct" value={cfg.lanRelayUrl} onChange={set("lanRelayUrl")} placeholder="192.168.1.20 (sans internet)" />
           </div>
           <p className="foot">Même principe, mais avec l'adresse et le token du relais. Tout reste sur cet appareil.</p>
+
+          <div className="cap">Sans internet</div>
+          <div className="list">
+            <Row icon="wifi" color="var(--teal)" label="Connexion directe" detail="Chercher et tester" chevron onClick={openDirect} />
+          </div>
 
           <div className="cap">Sécurité</div>
           <div className="list">

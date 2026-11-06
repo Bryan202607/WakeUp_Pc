@@ -97,6 +97,13 @@ const PATHS = {
       <path d="M19 11a7 7 0 0 0-3-5.3" />
     </>
   ),
+  back: <path d="M15 5l-7 7 7 7" />,
+  unlock: (
+    <>
+      <rect x="5" y="11" width="14" height="9" rx="2" />
+      <path d="M8 11V8a4 4 0 0 1 7.6-1.7" />
+    </>
+  ),
   chevron: <path d="M9 6l6 6-6 6" />,
   clock: (
     <>

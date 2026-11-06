@@ -5,229 +5,51 @@ import Icon from "./icons";
 import { shotUrl, openExternal } from "./api";
 import { copyText, buzz } from "./util";
 
-// ---------------------------------------------------------------- Souris et clavier
-const SPEEDS = [0.9, 1.5, 2.2, 3.2]; // vitesse du curseur (1 à 4)
-
-const KEYPAD = [
-  ["Entrée", { key: "enter" }],
-  ["Retour", { key: "backspace" }],
-  ["Suppr", { key: "delete" }],
-  ["Tab", { key: "tab" }],
-  ["Échap", { key: "esc" }],
-  ["Début", { key: "home" }],
-  ["←", { key: "left" }],
-  ["↑", { key: "up" }],
-  ["↓", { key: "down" }],
-  ["→", { key: "right" }],
-  ["Fin", { key: "end" }],
-  ["Win", { key: "win" }],
-];
-
-const COMBOS = [
-  ["Copier", ["ctrl", "c"]],
-  ["Coller", ["ctrl", "v"]],
-  ["Annuler", ["ctrl", "z"]],
-  ["Tout", ["ctrl", "a"]],
-  ["Alt+Tab", ["alt", "tab"]],
-  ["Bureau", ["win", "d"]],
-  ["Fermer l'onglet", ["ctrl", "w"]],
-  ["Actualiser", ["f5"]],
-];
-
-export function TouchpadSheet({ go, close }) {
-  const [speed, setSpeed] = useState(() => {
-    try {
-      return Number(localStorage.getItem("pcr_speed")) || 2;
-    } catch (e) {
-      return 2;
-    }
-  });
-  const [held, setHeld] = useState(false);
-  const [text, setText] = useState("");
-
-  const acc = useRef({ dx: 0, dy: 0, sc: 0 });
-  const busy = useRef(false);
-  const pointers = useRef(new Map());
-  const g = useRef({ moved: 0, start: 0, most: 0 });
-  const speedRef = useRef(speed);
-  const heldRef = useRef(false);
-  const prev = useRef("");
-  const queue = useRef(Promise.resolve());
-
-  speedRef.current = speed;
-  heldRef.current = held;
-
-  // Envoie les mouvements accumulés toutes les 40 ms (jamais deux envois en même temps)
-  useEffect(() => {
-    const flush = async () => {
-      if (busy.current) return;
-      const a = acc.current;
-      const dx = Math.trunc(a.dx);
-      const dy = Math.trunc(a.dy);
-      const sc = Math.trunc(a.sc);
-      if (!dx && !dy && !sc) return;
-      a.dx -= dx;
-      a.dy -= dy;
-      a.sc -= sc;
-      busy.current = true;
-      await go("mouse", { body: { dx, dy, scroll: sc }, quiet: true });
-      busy.current = false;
-    };
-    const id = setInterval(flush, 40);
-    return () => {
-      clearInterval(id);
-      if (heldRef.current) go("mouse", { body: { btn: "left", act: "up" }, quiet: true }); // on relâche le bouton en partant
-    };
-  }, []);
-
-  const click = (btn, act) => {
-    buzz(6);
-    go("mouse", { body: { btn, act: act || "click" }, quiet: true });
-  };
-
-  const down = (e) => {
-    e.currentTarget.setPointerCapture(e.pointerId);
-    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pointers.current.size === 1) g.current = { moved: 0, start: Date.now(), most: 1 };
-    g.current.most = Math.max(g.current.most, pointers.current.size);
-  };
-
-  const move = (e) => {
-    const p = pointers.current.get(e.pointerId);
-    if (!p) return;
-    const dx = e.clientX - p.x;
-    const dy = e.clientY - p.y;
-    p.x = e.clientX;
-    p.y = e.clientY;
-    g.current.moved += Math.abs(dx) + Math.abs(dy);
-    const n = pointers.current.size;
-    if (n === 1) {
-      acc.current.dx += dx * SPEEDS[speedRef.current - 1];
-      acc.current.dy += dy * SPEEDS[speedRef.current - 1];
-    } else {
-      acc.current.sc += -dy / n / 22; // deux doigts : défilement, comme sur un téléphone
-    }
-  };
-
-  const up = (e) => {
-    if (!pointers.current.delete(e.pointerId)) return;
-    if (pointers.current.size === 0) {
-      const { moved, start, most } = g.current;
-      if (Date.now() - start < 260 && moved < 10) click(most >= 2 ? "right" : "left"); // un tap clique, deux doigts = clic droit
-    }
-  };
-
-  const toggleHold = () => {
-    const next = !held;
-    setHeld(next);
-    buzz(8);
-    go("mouse", { body: { btn: "left", act: next ? "down" : "up" }, quiet: true });
-  };
-
-  // Frappe en direct : on envoie seulement ce qui change dans le champ
-  const typeQ = (body) => {
-    queue.current = queue.current.then(() => go("key", { body, quiet: true }));
-  };
-
-  const onType = (e) => {
-    const v = e.target.value;
-    const p = prev.current;
-    let i = 0;
-    while (i < v.length && i < p.length && v[i] === p[i]) i++;
-    const del = p.length - i;
-    const add = v.slice(i);
-    if (del) typeQ({ key: "backspace", n: del });
-    if (add) typeQ({ text: add });
-    if (v.length > 200) {
-      prev.current = "";
-      setText("");
-    } else {
-      prev.current = v;
-      setText(v);
-    }
-  };
-
-  const sendKey = (body) => {
-    buzz(6);
-    typeQ(body);
-    if (body.key === "enter") {
-      prev.current = "";
-      setText("");
-    }
-  };
+// ---------------------------------------------------------------- Déverrouiller le PC
+export function UnlockSheet({ go, close }) {
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
 
   return (
-    <Sheet title="Souris et clavier" onClose={close}>
-      {() => (
-        <>
-          <div className="tpad" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
-            <Icon name="pointer" size={28} />
-            <span>Glisse pour déplacer. Touche pour cliquer. Deux doigts pour défiler ou faire un clic droit.</span>
-          </div>
-
-          <div className="gbar tbtns">
-            <button className="mini soft" onClick={() => click("left")}>
-              Clic gauche
+    <Sheet title="Déverrouiller le PC" onClose={close}>
+      {({ dismiss }) => {
+        const submit = async () => {
+          setBusy(true);
+          const j = await go("unlock", { body: { code }, ok: "PC déverrouillé" });
+          setBusy(false);
+          if (j) {
+            setCode("");
+            dismiss();
+          }
+        };
+        return (
+          <>
+            <p className="foot center">
+              Entre le code de déverrouillage choisi à l'installation (ce n'est pas le mot de passe Windows). Ça prend une dizaine de secondes.
+            </p>
+            <div className="list">
+              <label className="field">
+                <span>Code</span>
+                <input
+                  type="password"
+                  value={code}
+                  autoFocus
+                  onChange={(e) => setCode(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && code && !busy && submit()}
+                  placeholder="Code de déverrouillage"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                />
+              </label>
+            </div>
+            <button className="big" disabled={!code || busy} onClick={submit}>
+              {busy ? "Déverrouillage…" : "Déverrouiller"}
             </button>
-            <button className="mini soft" onClick={() => click("right")}>
-              Clic droit
-            </button>
-            <button className={"mini" + (held ? "" : " soft")} onClick={toggleHold}>
-              {held ? "Lâcher" : "Glisser"}
-            </button>
-          </div>
-
-          <div className="list">
-            <label className="field">
-              <span>Vitesse</span>
-              <input
-                type="range"
-                min="1"
-                max="4"
-                step="1"
-                value={speed}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  setSpeed(v);
-                  try {
-                    localStorage.setItem("pcr_speed", String(v));
-                  } catch (err) {}
-                }}
-              />
-            </label>
-          </div>
-
-          <div className="cap">Clavier</div>
-          <div className="list">
-            <label className="field left">
-              <input
-                type="text"
-                value={text}
-                onChange={onType}
-                placeholder="Écris ici, ça s'écrit sur le PC"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-              />
-            </label>
-          </div>
-          <div className="kgrid">
-            {KEYPAD.map(([label, body]) => (
-              <button key={label} className="kbtn" onClick={() => sendKey(body)}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <div className="kgrid">
-            {COMBOS.map(([label, combo]) => (
-              <button key={label} className="kbtn alt" onClick={() => sendKey({ combo })}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <p className="foot center">Ça agit sur le vrai PC : utilise-le seulement quand tu en as besoin.</p>
-        </>
-      )}
+            <p className="foot">Pas encore installé ? Regarde le chapitre « Déverrouiller le PC » du guide.</p>
+          </>
+        );
+      }}
     </Sheet>
   );
 }

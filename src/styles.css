@@ -1007,3 +1007,266 @@ div.row {
   gap: 8px;
   margin-top: 10px;
 }
+
+/* ================= Pavé tactile et clavier plein écran (fond gris) ================= */
+.fs {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: #a3a3a7;
+  color: #1c1c1e;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  overscroll-behavior: none;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.fs::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0) 22%, rgba(0, 0, 0, 0) 78%, rgba(0, 0, 0, 0.22));
+  pointer-events: none;
+}
+.fs-top {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+}
+.fs-grow {
+  flex: 1;
+}
+.fs-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.3);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+.fs-btn:active {
+  background: rgba(255, 255, 255, 0.5);
+}
+.fs-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 36px;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 19px;
+  line-height: 1.7;
+  text-align: center;
+  white-space: pre-line;
+  pointer-events: none;
+}
+.fs-bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: env(safe-area-inset-bottom, 0px);
+  height: 88px;
+  display: flex;
+  border-top: 1px solid rgba(255, 255, 255, 0.4);
+  pointer-events: none;
+}
+.fs-bottom > div {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 15px;
+  font-weight: 600;
+}
+.fs-bottom > div + div {
+  border-left: 1px solid rgba(255, 255, 255, 0.4);
+}
+.fs-dots {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.fs-dots i {
+  position: absolute;
+  left: -30px;
+  top: -30px;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.kb {
+  position: relative;
+  z-index: 2;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 8px 10px;
+}
+.kb-row {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 6px;
+}
+.kb-row.small {
+  flex: 0.55;
+}
+.k {
+  flex: var(--w, 1) 1 0;
+  min-width: 0;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #1c1c1e;
+  font-size: clamp(17px, 4.4vw, 28px);
+  font-weight: 500;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.3);
+  touch-action: none;
+}
+.k.long {
+  font-size: clamp(12px, 3.1vw, 19px);
+}
+.k.mod {
+  background: rgba(70, 70, 76, 0.6);
+  color: #fff;
+}
+.k.on {
+  background: var(--blue);
+  color: #fff;
+}
+.k.down {
+  background: rgba(255, 255, 255, 0.55);
+  transform: scale(0.96);
+}
+.k.mod.down {
+  background: rgba(70, 70, 76, 0.85);
+}
+
+/* diagnostic de la connexion directe */
+.diag {
+  margin: 0 4px 10px;
+  font-size: 15px;
+  line-height: 1.45;
+}
+.diag.ok b {
+  color: var(--green);
+}
+.diag.ko b {
+  color: var(--red);
+}
+
+/* ================= Écran et pavé : vidéo en haut (1/3), pavé en bas (2/3) ================= */
+.fs-video {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 33.333%;
+  z-index: 1;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.fs-video img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  pointer-events: none;
+}
+.fs-video .shot-empty {
+  color: rgba(255, 255, 255, 0.7);
+  padding: 20px;
+}
+.fs-info {
+  position: absolute;
+  left: 10px;
+  bottom: 8px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  pointer-events: none;
+}
+.fs.split .fs-hint {
+  top: 33.333%;
+}
+.fs-ico {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+}
+.fs-ico:active {
+  background: rgba(255, 255, 255, 0.5);
+}
+.fs-ico.on {
+  background: var(--blue);
+}
+.fs.split::before {
+  display: none;
+}
+
+/* ================= Fluidité ================= */
+/* Pas de flou en temps réel sur ce qui est toujours à l'écran : c'est ce qui fait ramer les téléphones modestes */
+.group,
+.pill,
+.icon-btn,
+.wake,
+.empty {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+button,
+.row,
+label,
+a {
+  touch-action: manipulation; /* pas d'attente de double tap */
+}
+.fs-btn,
+.fs-ico {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.row,
+.big,
+.ghost,
+.mini {
+  transition-duration: 0.12s;
+}

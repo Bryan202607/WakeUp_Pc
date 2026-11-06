@@ -4,6 +4,7 @@ import Row from "./Row";
 import { CHAPTERS } from "./guideData";
 import { copyText } from "./util";
 import agentSource from "../agent.py?raw"; // le programme de l'agent est embarqué dans l'appli
+import unlockSource from "../unlock.py?raw"; // et celui du déverrouillage à distance
 
 // {ORIGIN} devient l'adresse exacte de cette appli
 const origins = () => Array.from(new Set([window.location.origin, "https://localhost"])).join(",");
@@ -30,24 +31,24 @@ function CopyBtn({ text, label = "Copier" }) {
   );
 }
 
-function AgentBlock() {
+function AgentBlock({ file = "agent.py", source = agentSource }) {
   const [msg, setMsg] = useState("");
 
   const share = async () => {
     try {
-      const file = new File([agentSource], "agent.py", { type: "text/x-python" });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: "agent.py" });
+      const f = new File([source], file, { type: "text/x-python" });
+      if (navigator.canShare && navigator.canShare({ files: [f] })) {
+        await navigator.share({ files: [f], title: file });
         return;
       }
       if (navigator.share) {
-        await navigator.share({ title: "agent.py", text: agentSource });
+        await navigator.share({ title: file, text: source });
         return;
       }
     } catch (e) {
       if (e && e.name === "AbortError") return;
     }
-    setMsg((await copyText(agentSource)) ? "Partage indisponible : le code a été copié." : "Partage indisponible.");
+    setMsg((await copyText(source)) ? "Partage indisponible : le code a été copié." : "Partage indisponible.");
     setTimeout(() => setMsg(""), 3000);
   };
 
@@ -55,9 +56,9 @@ function AgentBlock() {
     <>
       <div className="gbar">
         <button className="mini" onClick={share}>
-          Partager agent.py
+          Partager {file}
         </button>
-        <CopyBtn text={agentSource} label="Copier le code" />
+        <CopyBtn text={source} label="Copier le code" />
       </div>
       {msg && <p className="foot">{msg}</p>}
     </>
@@ -99,6 +100,8 @@ function Block({ b }) {
       return <p className="gwarn">{rich(b.text)}</p>;
     case "agent":
       return <AgentBlock />;
+    case "unlockfile":
+      return <AgentBlock file="unlock.py" source={unlockSource} />;
     default:
       return null;
   }

@@ -1,15 +1,20 @@
-import { useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { call, load, save, isNative, normLan } from "./api";
 import { hasPin } from "./pin";
 import useStatus from "./useStatus";
 import Settings from "./Settings";
-import Guide from "./Guide";
 import { FilesSheet } from "./Files";
 import Row from "./Row";
 import Icon from "./icons";
 import { Lock, PinSheet } from "./Pin";
 import { TimerSheet, OtherSheet, MediaSheet, SendSheet, InfoSheet } from "./Tools";
-import { TouchpadSheet, ScreenSheet, ClipboardSheet, ProcsSheet, ShortcutsSheet, WakeSheet } from "./More";
+import { ScreenSheet, ClipboardSheet, ProcsSheet, ShortcutsSheet, WakeSheet, UnlockSheet } from "./More";
+import { TouchpadScreen } from "./Touchpad";
+
+// Les écrans les plus lourds ne se chargent que quand on les ouvre : l'appli démarre plus vite
+const Guide = lazy(() => import("./Guide"));
+const KeyboardScreen = lazy(() => import("./Keyboard").then((m) => ({ default: m.KeyboardScreen })));
+const DirectSheet = lazy(() => import("./Direct").then((m) => ({ default: m.DirectSheet })));
 
 const GRACE = 30000; // l'appli se reverrouille après 30 s en arrière-plan
 
@@ -33,8 +38,10 @@ const GROUPS = [
   {
     cap: "Contrôle",
     items: [
-      { id: "touchpad", label: "Souris et clavier", icon: "pointer", color: "var(--blue)" },
-      { id: "screen", label: "Capture d'écran", icon: "monitor", color: "var(--indigo)" },
+      { id: "split", label: "Écran et pavé", icon: "monitor", color: "var(--blue)" },
+      { id: "touchpad", label: "Pavé tactile", icon: "pointer", color: "var(--indigo)" },
+      { id: "keyboard", label: "Clavier", icon: "keyboard", color: "var(--teal)" },
+      { id: "screen", label: "Capture d'écran", icon: "monitor", color: "var(--orange)" },
       { id: "media", label: "Médias et volume", icon: "music", color: "var(--pink)" },
       { id: "clipboard", label: "Presse-papiers", icon: "clipboard", color: "var(--orange)" },
     ],
@@ -84,6 +91,7 @@ export default function App() {
   const [view, setView] = useState(null); // feuille ouverte : settings, guide, pin, timer, other, media, send, info
   const [locked, setLocked] = useState(hasPin);
   const [armed, setArmed] = useState(null);
+  const [pcLocked, setPcLocked] = useState(false); // l'écran du PC est verrouillé
   const [toast, setToast] = useState(null);
   const armTimer = useRef(null);
   const lastErr = useRef(0);
@@ -103,8 +111,9 @@ export default function App() {
   const relayLan = direct ? normLan(cfg.lanRelayUrl) : "";
 
   // Pas de vérification réseau tant que l'appli est verrouillée
-  const pcTsState = useStatus(locked ? "" : pcTs, pcToken);
-  const pcLanState = useStatus(locked ? "" : pcLan, pcToken);
+  const onPcInfo = (j) => setPcLocked(Boolean(j && j.locked));
+  const pcTsState = useStatus(locked ? "" : pcTs, pcToken, onPcInfo);
+  const pcLanState = useStatus(locked ? "" : pcLan, pcToken, onPcInfo);
   const relayTsState = useStatus(locked ? "" : relayTs, relayToken);
   const relayLanState = useStatus(locked ? "" : relayLan, relayToken);
 
@@ -180,7 +189,7 @@ export default function App() {
   if (locked) return <Lock onUnlock={() => setLocked(false)} />;
 
   const close = () => setView(null);
-  const dotClass = pc === "on" ? "on" : pc === "off" ? "off" : pc === "denied" ? "denied" : "";
+  const dotClass = pc === "on" ? (pcLocked ? "denied" : "on") : pc === "off" ? "off" : pc === "denied" ? "denied" : "";
 
   const relayNote =
     relay === "none"
@@ -234,11 +243,16 @@ export default function App() {
           <>
             <div className="pill">
               <span className={"dot " + dotClass}></span>
-              {LABELS[pc]}{viaLan ? " · direct" : ""}
+              {pc === "on" && pcLocked ? "Ordinateur verrouillé" : LABELS[pc]}{viaLan ? " · direct" : ""}
             </div>
 
             {pc === "on" ? (
               <div className="appear">
+                {pcLocked && (
+                  <section className="group">
+                    <Row icon="unlock" color="var(--green)" label="Déverrouiller le PC" chevron onClick={() => setView("unlock")} />
+                  </section>
+                )}
                 <section className="group">
                   {ACTIONS.map((a) => (
                     <Row
@@ -286,12 +300,19 @@ export default function App() {
       </main>
 
       {view === "settings" && (
-        <Settings cfg={cfg} setCfg={setCfg} close={close} openPin={() => setView("pin")} openGuide={() => setView("guide")} />
+        <Settings cfg={cfg} setCfg={setCfg} close={close} openPin={() => setView("pin")} openGuide={() => setView("guide")} openDirect={() => setView("direct")} />
       )}
-      {view === "guide" && <Guide close={close} />}
       {view === "pin" && <PinSheet say={say} close={close} />}
       {view === "files" && <FilesSheet route={pcRoute} go={go} say={say} close={close} />}
-      {view === "touchpad" && <TouchpadSheet go={go} close={close} />}
+      {(view === "touchpad" || view === "split") && (
+        <TouchpadScreen key={view} go={go} close={close} route={pcRoute} video={view === "split"} toKeyboard={() => setView("keyboard")} />
+      )}
+      <Suspense fallback={null}>
+        {view === "keyboard" && <KeyboardScreen go={go} close={close} toPad={() => setView("touchpad")} />}
+        {view === "guide" && <Guide close={close} />}
+        </Suspense>
+      {view === "unlock" && <UnlockSheet go={go} close={close} />}
+      {view === "direct" && <DirectSheet cfg={cfg} setCfg={setCfg} close={close} />}
       {view === "screen" && <ScreenSheet route={pcRoute} say={say} close={close} />}
       {view === "clipboard" && <ClipboardSheet go={go} say={say} close={close} />}
       {view === "procs" && <ProcsSheet go={go} close={close} />}
