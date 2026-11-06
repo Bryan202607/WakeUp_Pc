@@ -394,9 +394,25 @@ def unique_path(folder, name):
     return p
 
 
+OUTBOX = "Vers le téléphone"   # dossier où le PC dépose ce qu'il envoie au téléphone
+
+
+def outbox_dir():
+    """(chemin tel que l'appli le connaît, chemin réel) du dossier « Vers le téléphone »."""
+    roots = share_roots()
+    name, real = roots[0]
+    p = os.path.join(real, OUTBOX)
+    os.makedirs(p, exist_ok=True)
+    return ((name + "/" + OUTBOX) if len(roots) > 1 else OUTBOX), p
+
+
 def act_files(body):
     root, folder = resolve(body.get("path", ""))
     roots = share_roots()
+    try:
+        outbox = outbox_dir()[0]
+    except OSError:
+        outbox = ""
     if root is None:      # plusieurs dossiers partagés : on affiche la liste de départ
         entries = []
         for n, r in roots:
@@ -406,7 +422,7 @@ def act_files(body):
                 m = 0
             entries.append({"n": n, "d": True, "s": 0, "m": m})
         return {"path": "", "virtual": True, "root": " ; ".join(r for _, r in roots),
-                "max_upload": MAX_UPLOAD, "entries": entries, "more": False}
+                "max_upload": MAX_UPLOAD, "entries": entries, "more": False, "outbox": outbox}
 
     if not os.path.isdir(folder):
         raise ValueError("dossier introuvable")
@@ -429,7 +445,7 @@ def act_files(body):
     rel = "" if rel == "." else rel
     if len(roots) > 1:
         rel = [n for n, r in roots if r == root][0] + ("/" + rel if rel else "")
-    return {"path": rel, "root": root, "max_upload": MAX_UPLOAD,
+    return {"path": rel, "root": root, "max_upload": MAX_UPLOAD, "outbox": outbox,
             "entries": entries[:500], "more": len(entries) > 500}
 
 
@@ -1763,7 +1779,74 @@ class HL(H):
     lan_only = True
 
 
+OUTBOX_FILE = os.path.join(HERE, "outbox_path.txt")   # l'agent y note où est « Vers le téléphone »
+
+
+def cli_message(text):
+    print(text)
+    if IS_WIN:
+        try:
+            ctypes.windll.user32.MessageBoxW(0, text, "WakeUp-Pc", 0x40)
+        except Exception:
+            pass
+
+
+def cli_send(paths):
+    """python agent.py --send fichier1 dossier2 ... : copie dans « Vers le téléphone » (clic droit > Envoyer vers)."""
+    try:
+        with open(OUTBOX_FILE, encoding="utf-8") as f:
+            dest = f.read().strip()
+    except OSError:
+        dest = ""
+    if not dest:
+        dest = os.path.join(os.path.realpath(os.path.expanduser("~/WakeUp-Pc")), OUTBOX)
+    os.makedirs(dest, exist_ok=True)
+    done, bad = 0, 0
+    for src in paths:
+        try:
+            name = clean_name(os.path.basename(src.rstrip("\\/")) or "fichier")
+            target = unique_path(dest, name)
+            if os.path.isdir(src):
+                shutil.copytree(src, target)
+            else:
+                shutil.copy2(src, target)
+            done += 1
+        except OSError:
+            bad += 1
+    if done:
+        cli_message("%d élément(s) prêt(s) pour le téléphone.\nOuvre Fichiers > Reçus du PC dans l'appli." % done
+                    + ("\n%d n'ont pas pu être copiés." % bad if bad else ""))
+    else:
+        cli_message("Rien n'a pu être copié.")
+    return 0 if done else 1
+
+
+def cli_install_sendto():
+    """python agent.py --install-sendto : ajoute « Telephone (WakeUp-Pc) » au menu clic droit > Envoyer vers."""
+    if not IS_WIN:
+        sys.exit("Cette fonction ne marche que sous Windows.")
+    sendto = os.path.join(os.environ.get("APPDATA", ""), "Microsoft", "Windows", "SendTo")
+    exe = sys.executable
+    pyw = os.path.join(os.path.dirname(exe), "pythonw.exe")
+    if os.path.exists(pyw):
+        exe = pyw
+    lnk = os.path.join(sendto, "Telephone (WakeUp-Pc).lnk")
+    q = lambda t: t.replace("'", "''")
+    ps = ("$s=(New-Object -ComObject WScript.Shell).CreateShortcut('%s');$s.TargetPath='%s';"
+          "$s.Arguments='\"%s\" --send';$s.WorkingDirectory='%s';$s.Save()"
+          % (q(lnk), q(exe), q(os.path.join(HERE, "agent.py")), q(HERE)))
+    enc = base64.b64encode(ps.encode("utf-16-le")).decode()
+    r = subprocess.run(["powershell", "-NoProfile", "-EncodedCommand", enc], capture_output=True)
+    if r.returncode != 0 or not os.path.exists(lnk):
+        sys.exit("Impossible de créer le raccourci.")
+    print("C'est prêt : clic droit sur un fichier > Envoyer vers > Telephone (WakeUp-Pc).")
+
+
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "--send":
+        sys.exit(cli_send(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "--install-sendto":
+        sys.exit(cli_install_sendto())
     if MODE not in ("pc", "relay"):
         sys.exit("MODE doit valoir pc ou relay")
     if len(TOKEN) < 16:
@@ -1780,6 +1863,12 @@ if __name__ == "__main__":
     if MODE == "pc":
         for n, r in share_roots():
             log("Dossier partagé : " + r)
+        try:
+            with open(OUTBOX_FILE, "w", encoding="utf-8") as f:
+                f.write(outbox_dir()[1])
+            log("Dossier pour le téléphone : " + outbox_dir()[1])
+        except OSError:
+            pass
     if LAN:
         try:
             lan = ThreadingHTTPServer((LAN_BIND, LAN_PORT), HL)

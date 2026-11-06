@@ -9,3 +9,4 @@ apps.json
 start-wakeup.bat
 shortcuts.json
 schedule.json
+outbox_path.txt

@@ -153,6 +153,7 @@ set SHARE_DIR=C:\\Users\\Bryan\\Documents;D:\\Photos
 
 Plusieurs dossiers se séparent par un point-virgule, et l'appli affiche alors la liste de départ. Rien d'autre sur le PC n'est visible.
 
+- **Envoyer vers le téléphone d'un clic droit (Windows)** : lance une fois `python agent.py --install-sendto`. Ensuite, clic droit sur un fichier ou un dossier > Envoyer vers > Telephone (WakeUp-Pc). Il est copié dans `Vers le téléphone`, que tu retrouves dans l'appli sous Fichiers > Reçus du PC.
 - **Télécharger un fichier** : appuie dessus. Le navigateur du téléphone le télécharge dans Téléchargements.
 - **Télécharger un dossier** : ouvre-le et appuie sur « Télécharger ce dossier (.zip) ». Le PC le compresse (2 Go maximum, `MAX_ZIP_MB` pour changer).
 - **Envoyer des fichiers** : choisis-en un ou plusieurs, ils arrivent dans le dossier ouvert (1 Go maximum par fichier, `MAX_UPLOAD_MB` pour changer).
