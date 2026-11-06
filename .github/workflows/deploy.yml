@@ -10,21 +10,24 @@ permissions:
   pages: write
   id-token: write
 
+# Un seul déploiement Pages à la fois.
+# cancel-in-progress doit rester à false : sinon un nouveau push annule
+# le déploiement en cours ("Canceling since a higher priority waiting request...").
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - run: npm install
       - run: npm run build
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: dist
 
