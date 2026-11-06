@@ -44,19 +44,22 @@ jobs:
           npx capacitor-assets generate --android
           npx cap sync android
 
-      - name: Autoriser la connexion directe (http sur le réseau local)
+      - name: Autorisations (connexion directe en http, empreinte digitale)
         run: |
           MANIFEST=android/app/src/main/AndroidManifest.xml
           if ! grep -q usesCleartextTraffic "$MANIFEST"; then
             sed -i 's/<application/<application android:usesCleartextTraffic="true"/' "$MANIFEST"
           fi
-          grep -n "usesCleartextTraffic" "$MANIFEST"
+          if ! grep -q USE_BIOMETRIC "$MANIFEST"; then
+            sed -i 's#<application#<uses-permission android:name="android.permission.USE_BIOMETRIC" />\n    <application#' "$MANIFEST"
+          fi
+          grep -n "usesCleartextTraffic\|USE_BIOMETRIC" "$MANIFEST"
 
       - name: Numéro de version
         run: |
           VC=${{ github.run_number }}
           sed -i -E "s/versionCode[[:space:]]*=?[[:space:]]*[0-9]+/versionCode = $VC/" android/app/build.gradle
-          sed -i -E "s/versionName[[:space:]]*=?[[:space:]]*\"[^\"]*\"/versionName = \"1.2.$VC\"/" android/app/build.gradle
+          sed -i -E "s/versionName[[:space:]]*=?[[:space:]]*\"[^\"]*\"/versionName = \"1.5.$VC\"/" android/app/build.gradle
           grep -n "versionCode\|versionName" android/app/build.gradle
 
       - name: Compiler l'APK
@@ -100,7 +103,7 @@ jobs:
           gh release create apk-latest WakeUp-Pc.apk \
             --target "${{ github.sha }}" \
             --title "WakeUp-Pc (APK)" \
-            --notes "Version 1.2.${{ github.run_number }}. Télécharge WakeUp-Pc.apk et installe-le sur ton téléphone Android." \
+            --notes "Version 1.5.${{ github.run_number }}. Télécharge WakeUp-Pc.apk et installe-le sur ton téléphone Android." \
             --latest
           LINK="https://github.com/${{ github.repository }}/releases/download/apk-latest/WakeUp-Pc.apk"
           echo "## APK prêt" >> "$GITHUB_STEP_SUMMARY"
