@@ -143,6 +143,15 @@ export function FilesSheet({ route, go, say, close }) {
             </>
           )}
 
+          {data && data.outbox && path !== data.outbox && (
+            <>
+              <div className="cap">Du PC vers le téléphone</div>
+              <div className="list">
+                <Row icon="download" color="var(--green)" label="Reçus du PC" detail="Ce que le PC t'a envoyé" chevron onClick={() => load(data.outbox)} />
+              </div>
+            </>
+          )}
+
           <div className="cap">{path ? "Sur le PC : " + path : data && data.virtual ? "Dossiers partagés" : "Sur le PC"}</div>
           {data === undefined && <p className="foot">Chargement…</p>}
           {data === null && <p className="foot">Impossible de lire le dossier du PC.</p>}
@@ -159,7 +168,11 @@ export function FilesSheet({ route, go, say, close }) {
                 )}
               </div>
               {data.entries.length === 0 && (
-                <p className="foot center">Dossier vide. Dépose des fichiers dans le dossier du PC pour les récupérer ici.</p>
+                <p className="foot center">
+                  {path && path === data.outbox
+                    ? "Rien en attente. Sur le PC : clic droit sur un fichier, Envoyer vers, Telephone (WakeUp-Pc)."
+                    : "Dossier vide. Dépose des fichiers dans le dossier du PC pour les récupérer ici."}
+                </p>
               )}
               <p className="foot">
                 Appuie sur un fichier pour le télécharger. Pour envoyer un dossier du téléphone, compresse-le d'abord en .zip avec ton

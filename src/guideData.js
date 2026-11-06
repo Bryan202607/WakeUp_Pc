@@ -202,6 +202,9 @@ export const CHAPTERS = [
           "Pour un **dossier**, ouvre-le puis appuie sur **Télécharger ce dossier (.zip)**. Le PC le compresse et tu reçois un seul fichier.",
         ],
       },
+      { t: "h", text: "Envoyer vers le téléphone d'un clic droit (Windows)" },
+      { t: "p", text: "Une seule fois, lance `python agent.py --install-sendto` sur le PC. Ensuite, fais un **clic droit** sur n'importe quel fichier ou dossier, puis **Envoyer vers**, puis **Telephone (WakeUp-Pc)**. L'élément est copié dans le dossier `Vers le téléphone` du dossier de partage." },
+      { t: "p", text: "Dans l'appli, ouvre **Fichiers** puis **Reçus du PC** : appuie sur un fichier pour le télécharger, ou sur **Télécharger ce dossier (.zip)** pour tout prendre d'un coup." },
       { t: "h", text: "Du téléphone vers le PC" },
       {
         t: "steps",
