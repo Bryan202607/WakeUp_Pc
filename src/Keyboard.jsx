@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Icon from "./icons";
 import { buzz } from "./util";
+import { lockLandscape, unlockOrientation } from "./orientation";
 
 // Clavier plein écran. Les lettres sont envoyées comme du texte (accents compris, quel que soit le clavier du PC),
 // Ctrl / Alt / Win restent « collés » jusqu'à la touche suivante pour faire des raccourcis (Ctrl puis C = copier).
@@ -141,6 +142,14 @@ export function KeyboardScreen({ go, close, toPad }) {
     },
     []
   );
+
+  // Le clavier s'affiche en paysage ; en le quittant, l'orientation redevient normale
+  useEffect(() => {
+    lockLandscape();
+    return () => {
+      unlockOrientation();
+    };
+  }, []);
 
   const upper = shift !== 0;
 

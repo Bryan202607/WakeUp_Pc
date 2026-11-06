@@ -1167,6 +1167,31 @@ div.row {
   background: rgba(70, 70, 76, 0.85);
 }
 
+/* clavier en paysage : barre du haut compacte, touches plus basses et espacées */
+@media (orientation: landscape) {
+  .fs-top {
+    padding: 4px 12px;
+  }
+  .fs-btn {
+    min-height: 36px;
+    font-size: 14px;
+  }
+  .kb {
+    gap: 5px;
+    padding: 2px calc(10px + env(safe-area-inset-right, 0px)) 6px calc(10px + env(safe-area-inset-left, 0px));
+  }
+  .kb-row {
+    gap: 5px;
+  }
+  .k {
+    border-radius: 8px;
+    font-size: clamp(14px, 3.2vh, 22px);
+  }
+  .k.long {
+    font-size: clamp(11px, 2.6vh, 16px);
+  }
+}
+
 /* diagnostic de la connexion directe */
 .diag {
   margin: 0 4px 10px;
