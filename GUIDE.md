@@ -161,11 +161,33 @@ Plusieurs dossiers se séparent par un point-virgule, et l'appli affiche alors l
 - Un fichier ou un dossier du même nom n'est jamais écrasé : le nouveau devient `nom (1)`.
 - Ça marche par Tailscale et en connexion directe, donc avec ou sans internet.
 
-## Contrôler le PC comme avec une souris
+## Pavé tactile, clavier et vidéo de l'écran
 
-- **Souris et clavier** : un doigt déplace le curseur, un tap clique, un tap à deux doigts fait un clic droit, deux doigts qui glissent font défiler. Le champ de texte écrit sur le PC en direct, avec les touches spéciales et des raccourcis (Copier, Coller, Alt+Tab…). Windows seulement.
-- **Capture d'écran** : l'écran du PC dans l'appli, avec affichage en direct, trois qualités et enregistrement. Windows seulement.
-- **Presse-papiers** : du téléphone vers le PC (« Copier sur le PC », puis Ctrl+V) et du PC vers le téléphone (« Lire le presse-papiers du PC »).
+- **Pavé tactile** : plein écran, fond gris. Un doigt déplace, un tap clique, un tap à deux doigts fait un clic droit, deux doigts font défiler, deux doigts qui s'écartent zooment, trois doigts changent de fenêtre. La bande du bas donne les boutons gauche et droit. **Quitter** en haut à gauche.
+- **Écran et pavé** : comme le pavé, avec l'écran du PC en vidéo dans le tiers du haut. La vidéo va de 3 images par seconde (écran fixe) à 60 (écran qui bouge) et réduit sa taille toute seule si la connexion est lente. Pour la fluidité, préfère la connexion directe.
+- **Clavier** : plein écran, AZERTY avec accents, Ctrl/Alt/Win « collants » pour les raccourcis, pages 123 et Fn. **Quitter** en haut à gauche.
+- **Capture d'écran** : une image, avec affichage en direct, trois qualités et enregistrement.
+- **Presse-papiers** : du téléphone vers le PC et du PC vers le téléphone.
+
+Tout ça demande l'agent sur Windows.
+
+## Déverrouiller le PC à distance (facultatif)
+
+Windows interdit à un programme normal de taper sur l'écran de connexion. `unlock.py` installe donc un petit service avec les droits SYSTEM :
+
+1. Mets `unlock.py` à côté de `agent.py`. Python doit être installé pour tous les utilisateurs (Program Files).
+2. Dans une invite de commandes **en administrateur** : `python unlock.py setup`. Il demande le mot de passe (ou le PIN) Windows, puis un **code de déverrouillage** à toi.
+3. PC verrouillé (Windows + L) : la ligne du haut de l'appli affiche « Ordinateur verrouillé » et une ligne **Déverrouiller le PC** apparaît.
+
+Le mot de passe est chiffré par Windows et rangé dans `C:\\ProgramData\\WakeUpPc`. Il n'est tapé que sur l'écran de connexion, jamais dans une fenêtre ouverte ni dans une demande UAC. Trois codes faux de suite bloquent 15 minutes. Pour désinstaller : `python unlock.py remove` (administrateur). Pour vérifier : `python unlock.py status`.
+
+## Si la connexion directe ne marche pas bien
+
+Dans Réglages, **Connexion directe** : « Chercher le PC et le relais » trouve les adresses tout seul, « Tester la connexion » dit ce qui bloque. Il faut l'appli Android (APK). Pare-feu Windows, une fois, en administrateur :
+
+```
+netsh advfirewall firewall add rule name="WakeUp-Pc" dir=in action=allow protocol=TCP localport=8766 profile=any
+```
 
 ## Gérer le PC
 

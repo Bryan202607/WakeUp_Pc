@@ -46,6 +46,9 @@ L'interface est faite en React (avec Vite), c'est la page qu'on ouvre sur le té
    │   ├── main.jsx
    │   ├── Settings.jsx
    │   ├── Files.jsx
+   │   ├── Touchpad.jsx
+   │   ├── Keyboard.jsx
+   │   ├── Direct.jsx
    │   ├── Guide.jsx
    │   ├── guideData.js
    │   ├── Pin.jsx
@@ -124,7 +127,7 @@ Il faut aussi préparer le PC pour qu'il accepte d'être réveillé :
 3. Appuie sur le bouton de réglages en haut à droite et remplis les adresses et les tokens du PC et du relais. Si tu ne sais pas où les trouver, regarde la partie Où trouver le token et l'adresse dans le `GUIDE.md`.
 4. Enregistre. Si tout va bien, la ligne du haut affiche Ordinateur en ligne.
 
-## Nouveautés des versions 1.2 à 1.4
+## Nouveautés des versions 1.2 à 1.5
 
 - **Connexion directe, sans internet** : le téléphone parle au PC par le point d'accès Wi-Fi du téléphone, le même Wi-Fi, le partage de connexion Bluetooth ou USB. On lance l'agent avec `LAN=1` et on met son adresse locale dans la ligne « Direct » des réglages. Les requêtes sont signées, le token ne circule jamais.
 - **Fichiers et dossiers dans les deux sens** : écran « Fichiers et dossiers » pour envoyer des fichiers du téléphone vers le PC, télécharger un fichier ou un dossier entier (en .zip), envoyer un dossier (compressé en .zip, le PC le décompresse tout seul) et créer des dossiers. Seuls les dossiers partagés sont accessibles : `~/WakeUp-Pc` par défaut, ou ceux de `SHARE_DIR` (plusieurs possibles, séparés par `;`).
@@ -133,6 +136,11 @@ Il faut aussi préparer le PC pour qu'il accepte d'être réveillé :
 - **Presse-papiers dans les deux sens**, **programmes en cours** (fermer un programme), **raccourcis** personnalisés (`shortcuts.json`, exemple dans `shortcuts.example.json`) et **téléchargement à distance** d'un lien sur le PC.
 - **Garder le PC éveillé** et **réveil programmé** (le relais allume le PC à l'heure choisie, fichier `schedule.json`).
 - **Empreinte digitale** pour déverrouiller l'appli, en plus du code PIN.
+- **Écran et pavé** : le tiers du haut du téléphone montre l'écran du PC en vidéo (de 3 à 60 images par seconde, le rythme s'adapte tout seul), les deux tiers du bas sont un pavé tactile.
+- **Pavé tactile plein écran** (fond gris, comme un pavé de portable : un doigt, tap, clic droit à deux doigts, défilement, zoom en pinçant, trois doigts pour changer de fenêtre, glisser-déposer, boutons du bas) et **clavier plein écran** (AZERTY, accents, Ctrl/Alt/Win, touches Fn). Chacun a un bouton Quitter.
+- **Déverrouiller le PC à distance** (facultatif) : `unlock.py` installe un petit service Windows, protégé par un code de déverrouillage. Voir le chapitre du guide avant de l'installer.
+- **Connexion directe** : outils « Chercher le PC et le relais » et « Tester la connexion » dans les réglages.
+- **Fluidité** : l'agent garde la connexion ouverte entre deux requêtes, le pavé envoie les mouvements sans attendre, les écrans lourds ne se chargent que quand on les ouvre.
 - **APK construit par GitHub** : voir « Obtenir l'APK » plus bas.
 - Le guide complet est lisible dans l'appli (bouton livre), même sans connexion, et contient le code de `agent.py`.
 

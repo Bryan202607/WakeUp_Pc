@@ -630,7 +630,8 @@ KEYS = {"enter": 0x0D, "backspace": 0x08, "tab": 0x09, "esc": 0x1B, "delete": 0x
         "left": 0x25, "up": 0x26, "right": 0x27, "down": 0x28, "home": 0x24, "end": 0x23,
         "pageup": 0x21, "pagedown": 0x22, "win": 0x5B, "ctrl": 0x11, "shift": 0x10, "alt": 0x12}
 KEYS.update({"f%d" % i: 0x6F + i for i in range(1, 13)})
-EXTENDED = {0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2E, 0x5B}   # touches "étendues" de Windows
+KEYS.update({"insert": 0x2D, "prtsc": 0x2C, "capslock": 0x14})
+EXTENDED = {0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2D, 0x2E, 0x5B}   # touches "étendues" de Windows
 
 
 def vk_of(name):
@@ -661,6 +662,7 @@ def send_inputs(items):
 
 def act_key(body):
     need_win()
+    STREAM["hot"] = time.time() + 2.0
     items = []
     if "text" in body:
         for ch in str(body["text"])[:500]:
@@ -694,8 +696,9 @@ MOUSE_BTN = {"left": (0x0002, 0x0004), "right": (0x0008, 0x0010), "middle": (0x0
 
 def act_mouse(body):
     need_win()
+    STREAM["hot"] = time.time() + 2.0
     try:
-        dx, dy, sc = (int(float(body.get(k, 0))) for k in ("dx", "dy", "scroll"))
+        dx, dy, sc, hs, zm = (int(float(body.get(k, 0))) for k in ("dx", "dy", "scroll", "hscroll", "zoom"))
     except (TypeError, ValueError):
         raise ValueError("valeur invalide")
     u = ctypes.windll.user32
@@ -703,6 +706,12 @@ def act_mouse(body):
         u.mouse_event(0x0001, max(-3000, min(3000, dx)), max(-3000, min(3000, dy)), 0, 0)   # déplacement relatif
     if sc:
         u.mouse_event(0x0800, 0, 0, -max(-50, min(50, sc)) * 120, 0)                          # molette (+ = vers le bas)
+    if hs:
+        u.mouse_event(0x01000, 0, 0, max(-50, min(50, hs)) * 120, 0)                          # molette horizontale (+ = vers la droite)
+    if zm:                                                                                    # zoom : Ctrl + molette (+ = agrandir)
+        u.keybd_event(0x11, 0, 0, 0)
+        u.mouse_event(0x0800, 0, 0, max(-20, min(20, zm)) * 120, 0)
+        u.keybd_event(0x11, 0, 2, 0)
     btn = body.get("btn")
     if btn:
         if btn not in MOUSE_BTN:
@@ -728,36 +737,92 @@ class BMIH(ctypes.Structure):
                 ("yppm", ctypes.c_int32), ("used", ctypes.c_uint32), ("imp", ctypes.c_uint32)]
 
 
+def png_chunk(kind, data):
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+
+
 def png_bytes(rgb, w, h):
     """Image PNG à partir de pixels RGB (sans aucune bibliothèque, juste zlib)."""
     stride = w * 3
     raw = b"".join(b"\x00" + rgb[y * stride:(y + 1) * stride] for y in range(h))
-
-    def chunk(kind, data):
-        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
-
-    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
-            + chunk(b"IDAT", zlib.compress(raw, 3)) + chunk(b"IEND", b""))
+    return (b"\x89PNG\r\n\x1a\n" + png_chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + png_chunk(b"IDAT", zlib.compress(raw, 3)) + png_chunk(b"IEND", b""))
 
 
-def grab_png(max_w):
+# PNG à 256 couleurs fixes (3 bits rouge, 3 bits vert, 2 bits bleu) : 3 fois moins de données et bien plus rapide,
+# c'est ce qui permet de tenir une vidéo fluide sans aucune bibliothèque.
+_T_R = bytes(v & 0xE0 for v in range(256))
+_T_G = bytes((v & 0xE0) >> 3 for v in range(256))
+_T_B = bytes(v >> 6 for v in range(256))
+_PLTE = b"".join(bytes((round(255 * ((i >> 5) & 7) / 7), round(255 * ((i >> 2) & 7) / 7), round(255 * (i & 3) / 3))) for i in range(256))
+
+
+def png_indexed(bgra, w, h):
+    n = w * h
+    plane = (int.from_bytes(bgra[2::4].translate(_T_R), "little") | int.from_bytes(bgra[1::4].translate(_T_G), "little")
+             | int.from_bytes(bgra[0::4].translate(_T_B), "little")).to_bytes(n, "little")   # additions de gros entiers : très rapide
+    raw = b"".join(b"\x00" + plane[y * w:(y + 1) * w] for y in range(h))
+    return (b"\x89PNG\r\n\x1a\n" + png_chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 3, 0, 0, 0))
+            + png_chunk(b"PLTE", _PLTE) + png_chunk(b"IDAT", zlib.compress(raw, 1)) + png_chunk(b"IEND", b""))
+
+
+# flèche de la souris, dessinée sur l'image (la capture Windows ne la contient pas)
+CURSOR_ART = [
+    "X           ", "XX          ", "X.X         ", "X..X        ", "X...X       ", "X....X      ", "X.....X     ",
+    "X......X    ", "X.......X   ", "X........X  ", "X.....XXXXX ", "X..X..X     ", "X.X X..X    ", "XX  X..X    ",
+    "X    X..X   ", "     X..X   ", "      X..X  ", "      X..X  ", "       XX   ",
+]
+
+
+def draw_cursor(buf, tw, th, cx, cy):
+    """Dessine la flèche dans une image BGRA (buf accepte l'assignation de tranches)."""
+    k = max(1, tw // 700)
+    stride = tw * 4
+    for y, row in enumerate(CURSOR_ART):
+        for x, ch in enumerate(row):
+            if ch == " ":
+                continue
+            col = b"\xff\xff\xff\xff" if ch == "." else b"\x00\x00\x00\xff"
+            for dy in range(k):
+                py = cy + y * k + dy
+                if py >= th:
+                    break
+                for dx in range(k):
+                    px = cx + x * k + dx
+                    if px < tw:
+                        o = py * stride + px * 4
+                        buf[o:o + 4] = col
+
+
+class POINT(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_int32), ("y", ctypes.c_int32)]
+
+
+_gdi_ready = False
+
+
+def grab_raw(max_w, fast=False, cursor=False):
+    """Capture l'écran principal réduit à max_w de large. Renvoie (pixels BGRA, largeur, hauteur)."""
+    global _gdi_ready
     need_win()
     u, g = ctypes.windll.user32, ctypes.windll.gdi32
     P, I = ctypes.c_void_p, ctypes.c_int
-    u.GetDC.argtypes, u.GetDC.restype = [P], P
-    u.ReleaseDC.argtypes = [P, P]
-    g.CreateCompatibleDC.argtypes, g.CreateCompatibleDC.restype = [P], P
-    g.CreateCompatibleBitmap.argtypes, g.CreateCompatibleBitmap.restype = [P, I, I], P
-    g.SelectObject.argtypes, g.SelectObject.restype = [P, P], P
-    g.SetStretchBltMode.argtypes = [P, I]
-    g.StretchBlt.argtypes = [P, I, I, I, I, P, I, I, I, I, ctypes.c_uint32]
-    g.GetDIBits.argtypes = [P, P, ctypes.c_uint, ctypes.c_uint, P, P, ctypes.c_uint]
-    g.DeleteObject.argtypes = [P]
-    g.DeleteDC.argtypes = [P]
-    try:
-        u.SetProcessDPIAware()      # sinon Windows ne renvoie qu'une partie de l'écran quand il est agrandi (125 %...)
-    except Exception:
-        pass
+    if not _gdi_ready:
+        u.GetDC.argtypes, u.GetDC.restype = [P], P
+        u.ReleaseDC.argtypes = [P, P]
+        g.CreateCompatibleDC.argtypes, g.CreateCompatibleDC.restype = [P], P
+        g.CreateCompatibleBitmap.argtypes, g.CreateCompatibleBitmap.restype = [P, I, I], P
+        g.SelectObject.argtypes, g.SelectObject.restype = [P, P], P
+        g.SetStretchBltMode.argtypes = [P, I]
+        g.StretchBlt.argtypes = [P, I, I, I, I, P, I, I, I, I, ctypes.c_uint32]
+        g.GetDIBits.argtypes = [P, P, ctypes.c_uint, ctypes.c_uint, P, P, ctypes.c_uint]
+        g.DeleteObject.argtypes = [P]
+        g.DeleteDC.argtypes = [P]
+        try:
+            u.SetProcessDPIAware()      # sinon Windows ne renvoie qu'une partie de l'écran quand il est agrandi (125 %...)
+        except Exception:
+            pass
+        _gdi_ready = True
     sw, sh = u.GetSystemMetrics(0), u.GetSystemMetrics(1)
     if sw <= 0 or sh <= 0:
         raise ValueError("écran introuvable")
@@ -768,7 +833,7 @@ def grab_png(max_w):
     hb = g.CreateCompatibleBitmap(hs, tw, th)
     try:
         old = g.SelectObject(hm, hb)
-        g.SetStretchBltMode(hm, 4)                                   # HALFTONE : réduction de bonne qualité
+        g.SetStretchBltMode(hm, 3 if fast else 4)                    # 3 = rapide, 4 = HALFTONE (meilleure qualité)
         if not g.StretchBlt(hm, 0, 0, tw, th, hs, 0, 0, sw, sh, 0x40CC0020):   # SRCCOPY | CAPTUREBLT
             raise ValueError("capture refusée (écran verrouillé ?)")
         g.SelectObject(hm, old)
@@ -781,10 +846,27 @@ def grab_png(max_w):
         g.DeleteObject(hb)
         g.DeleteDC(hm)
         u.ReleaseDC(None, hs)
-    bgra = buf.raw
+    if cursor:
+        pt = POINT()
+        if u.GetCursorPos(ctypes.byref(pt)):
+            draw_cursor(buf, tw, th, pt.x * tw // sw, pt.y * th // sh)
+    return buf.raw, tw, th
+
+
+def grab_png(max_w):
+    bgra, tw, th = grab_raw(max_w)
     rgb = bytearray(tw * th * 3)
     rgb[0::3], rgb[1::3], rgb[2::3] = bgra[2::4], bgra[1::4], bgra[0::4]      # BGRA -> RGB
     return png_bytes(bytes(rgb), tw, th)
+
+
+# ---- vidéo de l'écran : flux d'images PNG dont le rythme s'adapte (de 3 à 60 images par seconde)
+STREAM = {"gen": 0, "fps": 0.0, "w": 0, "kb": 0.0, "hot": 0.0}
+STREAM_LOCK = threading.Lock()
+
+
+def act_streaminfo(body):
+    return {"fps": round(STREAM["fps"], 1), "w": STREAM["w"], "kb": round(STREAM["kb"])}
 
 
 # ---------------------------------------------------------------- veille, programmes, presse-papiers
@@ -871,6 +953,53 @@ def act_kill(body):
     if r.returncode != 0:
         raise ValueError("introuvable ou refusé")
     note("Programme fermé : " + name[:40])
+    return {}
+
+
+def pc_locked():
+    """True si l'écran est verrouillé (ou si une demande UAC est affichée) : Windows refuse alors l'accès au bureau."""
+    if not IS_WIN:
+        return False
+    try:
+        u = ctypes.windll.user32
+        u.OpenInputDesktop.restype = ctypes.c_void_p
+        u.OpenInputDesktop.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+        u.CloseDesktop.argtypes = [ctypes.c_void_p]
+        h = u.OpenInputDesktop(0, False, 0x0100)
+        if not h:
+            return True
+        u.CloseDesktop(h)
+        return False
+    except Exception:
+        return False
+
+
+UNLOCK_PORT = int(os.environ.get("UNLOCK_PORT", "8767"))
+
+
+def act_unlock(body):
+    need_win()
+    code = str(body.get("code", ""))
+    if not code or len(code) > 100:
+        raise ValueError("code de déverrouillage manquant")
+    if not pc_locked():
+        raise ValueError("le PC n'est pas verrouillé")
+    req = urllib.request.Request("http://127.0.0.1:%d/unlock" % UNLOCK_PORT, data=json.dumps({"code": code}).encode(),
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=50) as r:
+            json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        try:
+            msg = json.loads(e.read()).get("error")
+        except Exception:
+            msg = None
+        if e.code == 403:
+            note("Code de déverrouillage refusé", bad=True)
+        raise ValueError(msg or "déverrouillage refusé")
+    except OSError:
+        raise ValueError("le déverrouillage n'est pas installé sur le PC (voir le guide)")
+    note("PC déverrouillé à distance")
     return {}
 
 
@@ -1170,11 +1299,11 @@ def sched_loop():
 PC.update({
     "key": act_key, "mouse": act_mouse, "awake": act_awake, "procs": act_procs, "kill": act_kill,
     "clipget": act_clipget, "dl_start": act_dl_start, "dl_status": act_dl_status, "dl_cancel": act_dl_cancel,
-    "shortcuts": act_shortcuts, "run": act_run,
+    "shortcuts": act_shortcuts, "run": act_run, "unlock": act_unlock, "streaminfo": act_streaminfo,
 })
 RELAY = {"wake": act_wake, "schedule_list": act_sched_list, "schedule_add": act_sched_add,
          "schedule_del": act_sched_del, "schedule_toggle": act_sched_toggle}
-QUIET = {"info", "apps", "files", "mouse", "key", "procs", "dl_status", "shortcuts", "schedule_list", "clipget"}
+QUIET = {"info", "apps", "files", "mouse", "key", "procs", "dl_status", "shortcuts", "schedule_list", "clipget", "streaminfo"}
 
 
 # ---------------------------------------------------------------- Wake-on-LAN (relais)
@@ -1195,7 +1324,29 @@ def wake(mac):
 # ---------------------------------------------------------------- serveur
 
 class H(BaseHTTPRequestHandler):
-    lan_only = False   # True sur le serveur réseau local : seules les requêtes signées passent
+    protocol_version = "HTTP/1.1"   # la connexion reste ouverte entre deux requêtes : indispensable pour un pavé tactile fluide
+    timeout = 60                    # une connexion inutilisée se ferme au bout d'une minute
+    wbufsize = 65536                # une réponse = un seul envoi réseau (sinon l'algorithme de Nagle ajoute 40 ms à chaque requête)
+    lan_only = False
+
+    def setup(self):
+        super().setup()
+        try:
+            self.request.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except OSError:
+            pass
+
+    def handle(self):
+        try:
+            super().handle()
+        except (ConnectionError, TimeoutError):
+            pass                    # le téléphone a coupé en route : rien à signaler
+
+    def finish(self):
+        try:
+            super().finish()
+        except (ConnectionError, TimeoutError):
+            pass   # True sur le serveur réseau local : seules les requêtes signées passent
 
     def log_message(self, *a):
         pass
@@ -1256,15 +1407,31 @@ class H(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
         self.send_response(204)
+        self.send_header("Content-Length", "0")
         self._cors()
         self.end_headers()
 
     def do_GET(self):
+        path = urlparse(self.path).path
+        if path == "/time":     # sert à caler l'horloge, à trouver l'agent sur le réseau et à diagnostiquer la connexion
+            origin = self.headers.get("Origin")
+            data = json.dumps({"t": int(time.time() * 1000), "app": "wakeup-pc", "mode": MODE,
+                               "origin_ok": (not origin) or origin in ORIGINS}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if not self._origin_ok():
             return
-        path = urlparse(self.path).path
-        if path == "/time":     # sert à caler l'horloge du téléphone et à reconnaître l'agent
-            return self._send(200, {"t": int(time.time() * 1000), "app": "wakeup-pc", "mode": MODE})
+        if path == "/stream" and MODE == "pc":
+            denied = self._auth("GET")
+            if denied:
+                return self._send(*denied)
+            return self._stream(parse_qs(urlparse(self.path).query))
         if path == "/shot" and MODE == "pc":
             denied = self._auth("GET")
             if denied:
@@ -1276,6 +1443,90 @@ class H(BaseHTTPRequestHandler):
                 return self._send(*denied)
             return self._download(parse_qs(urlparse(self.path).query))
         self._send(404, {"error": "introuvable"})
+
+    def _stream(self, q):
+        """Flux multipart/x-mixed-replace : le navigateur affiche les images au fur et à mesure, comme une vidéo."""
+        try:
+            max_w = max(240, min(1920, int((q.get("w") or ["800"])[0])))
+            fps_max = max(3, min(60, int((q.get("fps") or ["60"])[0])))
+        except ValueError:
+            max_w, fps_max = 800, 60
+        try:
+            need_win()
+        except ValueError as e:
+            return self._send(400, {"error": str(e)})
+        with STREAM_LOCK:
+            STREAM["gen"] += 1          # un seul flux à la fois : le nouveau arrête l'ancien
+            mine = STREAM["gen"]
+        self.close_connection = True
+        self.send_response(200)
+        self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        note("Écran en direct")
+        try:
+            ctypes.windll.winmm.timeBeginPeriod(1)      # pauses précises (sinon 15 ms minimum sur les vieux Python)
+        except Exception:
+            pass
+
+        steps = [x for x in (240, 320, 480, 640, 800, 1024, 1280, 1600, 1920) if x <= max_w] or [max_w]
+        lvl = min(3, len(steps) - 1)                    # on démarre vers 640 px puis on s'adapte
+        last_raw = last_png = None
+        last_sent = 0.0
+        ema, calm, cool = 0.05, 0, 0.0
+        loops = deque()
+        try:
+            while STREAM["gen"] == mine:
+                t0 = time.time()
+                try:
+                    raw, tw, th = grab_raw(steps[lvl], fast=True, cursor=True)
+                except Exception as e:
+                    log("flux arrêté : " + repr(e))
+                    break
+                changed = raw != last_raw
+                png, wr = None, 0.0
+                if changed:
+                    png = png_indexed(raw, tw, th)
+                    last_raw, last_png = raw, png
+                elif last_png and t0 - last_sent > 2.0:
+                    png = last_png               # image fixe : on la renvoie de temps en temps pour garder la connexion vivante
+                if png:
+                    t1 = time.time()
+                    self.wfile.write(b"--frame\r\nContent-Type: image/png\r\nContent-Length: %d\r\n\r\n" % len(png) + png + b"\r\n")
+                    self.wfile.flush()
+                    wr = time.time() - t1
+                    last_sent = time.time()
+                    STREAM["kb"] = len(png) / 1024.0
+                if changed:
+                    ema = 0.8 * ema + 0.2 * (time.time() - t0)
+                    if ema > 0.16 and lvl > 0 and t0 > cool:          # trop lent : on réduit la taille de l'image
+                        lvl, cool, calm = lvl - 1, t0 + 1.5, 0
+                    elif ema < 0.045 and wr < 0.02:                   # tout va vite : on peut agrandir
+                        calm += 1
+                        if calm >= 25 and lvl < len(steps) - 1 and t0 > cool:
+                            lvl, cool, calm = lvl + 1, t0 + 1.5, 0
+                    else:
+                        calm = 0
+                STREAM["w"] = tw
+                now = time.time()
+                loops.append(now)
+                while loops and loops[0] < now - 1.0:
+                    loops.popleft()
+                STREAM["fps"] = float(len(loops))
+                # image qui bouge, ou souris/clavier utilisés à l'instant : vitesse maximale. Image fixe : 3 par seconde.
+                hot = changed or now < STREAM["hot"]
+                time.sleep(max(0.0, (1.0 / fps_max if hot else 1.0 / 3) - (time.time() - t0)))
+        except OSError:
+            pass                                  # le téléphone a fermé : on s'arrête
+        finally:
+            with STREAM_LOCK:
+                if STREAM["gen"] == mine:
+                    STREAM["fps"] = 0.0
+            try:
+                ctypes.windll.winmm.timeEndPeriod(1)
+            except Exception:
+                pass
 
     def _shot(self, q):
         try:
@@ -1322,6 +1573,7 @@ class H(BaseHTTPRequestHandler):
                 start, end = max(0, size - int(m.group(2))), size - 1
             if start > end or start >= size:
                 self.send_response(416)
+                self.send_header("Content-Length", "0")
                 self.send_header("Content-Range", "bytes */%d" % size)
                 self.end_headers()
                 return
@@ -1383,6 +1635,7 @@ class H(BaseHTTPRequestHandler):
                 pass
 
     def do_PUT(self):
+        self.close_connection = True      # un envoi de fichier n'est jamais réutilisé : plus simple et plus sûr en cas d'erreur
         if not self._origin_ok():
             return
         u = urlparse(self.path)
@@ -1469,6 +1722,7 @@ class H(BaseHTTPRequestHandler):
         except ValueError:
             n = 0
         if n > MAX_BODY:
+            self.close_connection = True
             return self._send(413, {"error": "message trop gros"})
         raw = self.rfile.read(n) if n else b""
 
@@ -1485,6 +1739,8 @@ class H(BaseHTTPRequestHandler):
 
         action = urlparse(self.path).path.strip("/")
         if action == "ping":
+            if MODE == "pc":
+                return self._send(200, {"ok": True, "mode": MODE, "locked": pc_locked()})
             return self._send(200, {"ok": True, "mode": MODE})
 
         fn = (RELAY if MODE == "relay" else PC).get(action)
@@ -1535,5 +1791,6 @@ if __name__ == "__main__":
             log("Connexion directe : http://%s:%d" % (ip, LAN_PORT))
         if not ips:
             log("Connexion directe active sur le port %d (adresse : tape ipconfig)" % LAN_PORT)
-        log("Si Windows demande d'autoriser Python dans le pare-feu, accepte pour les réseaux privés.")
+        log("Si le téléphone ne trouve pas le PC : autorise le port dans le pare-feu (invite de commandes en administrateur) :")
+        log('  netsh advfirewall firewall add rule name="WakeUp-Pc" dir=in action=allow protocol=TCP localport=%d profile=any' % LAN_PORT)
     ThreadingHTTPServer((BIND, PORT), H).serve_forever()
